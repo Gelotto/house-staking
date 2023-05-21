@@ -12,3 +12,5 @@ pub enum ContractError {
   #[error("ValidationError")]
   ValidationError {},
 }
+
+pub type ContractResult<T> = Result<T, ContractError>;
