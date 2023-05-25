@@ -1,7 +1,7 @@
 network 				?= devnet  # network := devnet|mainnet|testnet
 sender 					?= juno16g2rahf5846rxzp3fwlswy08fz8ccuwk03k57y
 build_dir 				?= ./builds
-wasm_filename 			?= cw_contract.wasm
+wasm_filename 			?= house_staking.wasm
 
 # build optimized WASM artifact
 build:
@@ -27,8 +27,8 @@ schemas:
 devnet:
 	./bin/devnet
 
-transfer-ownership:
-	./client.sh transfer-ownership $(network) $(tag) $(sender)
+connect-client:
+	./client.sh connect-client $(network) $(tag) $(sender)
 
 select:
 	./client.sh query-select $(network) $(tag)

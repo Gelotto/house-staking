@@ -1,9 +1,9 @@
 [package]
-name = "cw-contract"
+name = "house-staking"
 version = "0.0.1"
 authors = []
 edition = "2021"
-description = "Smart Contract"
+description = "CosmWasm House Staking Protocol"
 license = "Apache-2.0"
 repository = ""
 homepage = ""

@@ -1,4 +1,5 @@
 pub mod client;
+pub mod credit;
 pub mod pool;
 
 mod earn;

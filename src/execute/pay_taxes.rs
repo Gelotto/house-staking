@@ -24,10 +24,9 @@ pub fn pay_taxes(
     }
   }
 
-  // if there's any dust left over, just move it into dividends
-  // and zero it out.
+  // if there's any dust left over, just move it into liquidity
   if !pool.taxes.is_zero() {
-    pool.dividends += pool.taxes;
+    pool.liquidity += pool.taxes;
     pool.taxes = Uint128::zero();
   }
 

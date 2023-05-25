@@ -53,6 +53,25 @@ transfer-ownership() {
   echo $response | ./bin/utils/base64-decode-attributes | jq
 }
 
+connect-client() {
+  sender=$1
+  msg='{"client":{"connect":{"address":"'$1'"}}}'
+  flags="\
+  --node $NODE \
+  --gas-prices 0.025$DENOM \
+  --chain-id $CHAIN_ID \
+  --from $sender \
+  --gas auto \
+  --gas-adjustment 1.5 \
+  --broadcast-mode block \
+  --output json \
+  -y \
+  "
+  echo junod tx wasm execute $CONTRACT_ADDR "$msg" "$flags"
+  response=$(junod tx wasm execute "$CONTRACT_ADDR" "$msg" $flags)
+  echo $response | ./bin/utils/base64-decode-attributes | jq
+}
+
 
 query-select() {
   query='{"select":{"fields":null}}'
@@ -68,6 +87,9 @@ echo "executing $CMD for $CONTRACT_ADDR"
 case $CMD in
   transfer-ownership)
     transfer-ownership $1
+    ;;
+  connect-client)
+    connect-client $1
     ;;
   query-select) 
     query-select

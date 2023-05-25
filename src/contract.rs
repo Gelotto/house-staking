@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use crate::error::ContractResult;
 use crate::execute;
-use crate::msg::{ClientMsg, ExecuteMsg, InstantiateMsg, MigrateMsg, PoolMsg, QueryMsg};
+use crate::msg::{ClientMsg, CreditMsg, ExecuteMsg, InstantiateMsg, MigrateMsg, PoolMsg, QueryMsg};
 use crate::query;
 use crate::state;
 use cosmwasm_std::entry_point;
@@ -38,12 +38,16 @@ pub fn execute(
       PoolMsg::Claim => execute::pool::claim(deps, env, info),
     },
     ExecuteMsg::Client(msg) => match msg {
-      ClientMsg::Connect { client } => execute::client::connect(deps, env, info, client),
+      ClientMsg::Connect(init_args) => execute::client::connect(deps, env, info, init_args),
       ClientMsg::Disconnect { client } => execute::client::disconnect(deps, env, info, client),
       ClientMsg::Suspend { client } => execute::client::suspend(deps, env, info, client),
       ClientMsg::Resume { client } => execute::client::resume(deps, env, info, client),
     },
-    ExecuteMsg::Earn { revenue } => execute::earn(deps, env, info, revenue),
+    ExecuteMsg::Credit(msg) => match msg {
+      CreditMsg::Deposit { amount } => execute::credit::deposit(deps, env, info, amount),
+      CreditMsg::Withdraw { amount } => execute::credit::withdraw(deps, env, info, amount),
+    },
+    ExecuteMsg::Earn { revenue, source } => execute::earn(deps, env, info, revenue, source),
     ExecuteMsg::Pay { payment, recipient } => execute::pay(deps, env, info, payment, recipient),
     ExecuteMsg::SetConfig { config } => execute::set_config(deps, env, info, config),
     ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),

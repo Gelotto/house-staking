@@ -1,12 +1,11 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Addr, Timestamp, Uint128};
 use cw_lib::models::Token;
-use cw_utils::Duration;
 
 #[cw_serde]
 pub struct Config {
   pub restake_rate: u16,
-  pub unbonding_period: Duration,
+  pub unbonding_period_nanos: u64,
 }
 
 #[cw_serde]
@@ -19,12 +18,25 @@ pub struct Pool {
 }
 
 #[cw_serde]
-pub struct Account {
+pub struct StakeAccount {
   pub address: Option<Addr>,
   pub delegation: Uint128,
-  pub liquidity: Uint128,
   pub dividends: Uint128,
+  pub liquidity: Uint128,
+  pub unbonding: Option<UnbondingInfo>,
   pub offset: u32,
+}
+
+#[cw_serde]
+pub struct BankAccount {
+  pub address: Option<Addr>,
+  pub balance: Uint128,
+}
+
+#[cw_serde]
+pub struct UnbondingInfo {
+  pub amount: Uint128,
+  pub time: Timestamp,
 }
 
 #[cw_serde]
@@ -34,6 +46,7 @@ pub struct Client {
   pub description: Option<String>,
   pub url: Option<String>,
   pub allowance: Option<Uint128>,
+  pub connected_at: Timestamp,
   pub revenue: Uint128,
   pub expenditure: Uint128,
   pub is_suspended: bool,
@@ -56,14 +69,14 @@ pub struct LedgerUpdates {
 
 #[cw_serde]
 pub struct TaxRecipient {
-  pub addr: Option<Addr>,
   pub pct: u16,
+  pub addr: Option<Addr>,
   pub name: Option<String>,
   pub description: Option<String>,
   pub url: Option<String>,
 }
 
-impl Account {
+impl StakeAccount {
   pub fn new(
     delegation: Uint128,
     offset: u32,
@@ -74,12 +87,14 @@ impl Account {
       liquidity: delegation,
       dividends: Uint128::zero(),
       address: None,
+      unbonding: None,
     }
   }
 }
 
 impl Client {
   pub fn new(
+    connected_at: Timestamp,
     address: Option<Addr>,
     allowance: Option<Uint128>,
     name: Option<String>,
@@ -92,6 +107,7 @@ impl Client {
       description,
       url,
       allowance,
+      connected_at,
       expenditure: Uint128::zero(),
       revenue: Uint128::zero(),
       is_suspended: false,

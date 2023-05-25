@@ -12,7 +12,7 @@ FILE_CODE_ID="code-id"
 echo "using build dir $BUILD_DIR"
 CODE_ID=$(cat $BUILD_DIR/$FILE_CODE_ID)
 
-INSTANTIATE_MSG='{}'
+INSTANTIATE_MSG='{"config":{"unbonding_period_nanos":60000000000,"restake_rate":900},"token":{"cw20":{"address":"juno1j0a9ymgngasfn3l5me8qpd53l5zlm9wurfdk7r65s5mg6tkxal3qpgf5se"}}}'
 
 case $NETWORK in
   devnet)
