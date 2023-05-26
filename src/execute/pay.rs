@@ -23,7 +23,9 @@ pub fn pay(
 
   let action = "pay";
   let config = CONFIG.load(deps.storage)?;
+
   let mut pool = POOL.load(deps.storage)?;
+  let mut client = validate_and_update_client(deps.storage, &info.sender, None)?;
 
   // suspend the client if this payment has exceeded the global 24h liquidity
   // expenditure limit. rate limiting is applied both at the client contract
@@ -35,8 +37,8 @@ pub fn pay(
     &pool,
     payment,
     info.sender.clone(),
-    config.client_rate_limit.interval_secs.into(),
-    config.client_rate_limit.max_pct_change,
+    client.config.rate_limit.interval_secs.into(),
+    client.config.rate_limit.max_pct_change,
   )?;
 
   let account_rate_limit_triggered = is_rate_limited(
@@ -75,8 +77,6 @@ pub fn pay(
       client_rate_limit_triggered.to_string(),
     ),
   ]);
-
-  let mut client = validate_and_update_client(deps.storage, &info.sender, None)?;
 
   // apply liquidity rate limiting: if recipient address has a BankAccount,
   // increment its balance; otherwise, send GLTO to the recipient address
@@ -130,46 +130,41 @@ fn is_rate_limited(
   interval_secs: u64,
   pct: u16,
 ) -> ContractResult<bool> {
-  // suspend the client if this payment has exceeded the global 24h liquidity
-  // expenditure limit.
+  // suspend the client or account address if this payment has exceeded the
+  // liquidity usage limit.
   let mut rate_limit_triggered = false;
   LIQUIDITY_USAGE.update(storage, addr.clone(), |maybe_record| -> ContractResult<_> {
     let mut record = maybe_record.unwrap_or_else(|| LiquidityUsage {
       initial_liquidity: pool.liquidity,
-      total_outlay: Uint128::zero(),
+      agg_payout: Uint128::zero(),
       time,
     });
 
-    let delta_t = time.seconds() - record.time.seconds();
+    let delta_secs = time.seconds() - record.time.seconds();
 
-    // reset the record if this block is happens within a new day
-    if delta_t >= interval_secs {
-      record.time = time;
-      record.total_outlay = payment;
+    // reset the record if this block is happens within the configured interval
+    if delta_secs >= interval_secs {
       record.initial_liquidity = payment;
+      record.agg_payout = payment;
     } else {
-      record.total_outlay += payment;
+      record.agg_payout += payment;
     }
 
-    // auto-suspend the client if this payment takes the client
-    // past its 24h allowed liquidity usage level.
-    let rate_limiting_thresh_amount = mul_pct(record.initial_liquidity, Uint128::from(pct));
+    record.time = time;
 
-    if record.total_outlay >= rate_limiting_thresh_amount {
+    // auto-suspend the client if this payment takes the client
+    // past its interval allowed liquidity usage level.
+    let thresh = mul_pct(record.initial_liquidity, Uint128::from(pct));
+
+    if record.agg_payout >= thresh {
       rate_limit_triggered = true;
     }
 
     api.debug(format!(">>> addr: {:?}", addr).as_str());
-    api.debug(format!(">>> delta_t: {:?}", delta_t).as_str());
+    api.debug(format!(">>> delta_t: {:?}", delta_secs).as_str());
     api.debug(format!(">>> interval_secs: {:?}", interval_secs).as_str());
-    api.debug(format!(">>> total outlay: {:?}", record.total_outlay).as_str());
-    api.debug(
-      format!(
-        ">>> rate_limiting_thresh_amount: {:?}",
-        rate_limiting_thresh_amount
-      )
-      .as_str(),
-    );
+    api.debug(format!(">>> total outlay: {:?}", record.agg_payout).as_str());
+    api.debug(format!(">>> rate_limiting_thresh_amount: {:?}", thresh).as_str());
 
     Ok(record)
   })?;

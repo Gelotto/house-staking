@@ -6,8 +6,8 @@ use cw_lib::models::Token;
 pub struct Config {
   pub restake_rate: u16,
   pub unbonding_period_nanos: u64,
-  pub client_rate_limit: RateLimitConfig,
   pub account_rate_limit: RateLimitConfig,
+  pub client_rate_limit: RateLimitConfig,
 }
 
 #[cw_serde]
@@ -48,16 +48,22 @@ pub struct UnbondingInfo {
 }
 
 #[cw_serde]
-pub struct Client {
-  pub address: Option<Addr>,
+pub struct ClientConfig {
   pub name: Option<String>,
   pub description: Option<String>,
   pub url: Option<String>,
-  pub allowance: Option<Uint128>,
+  pub budget: Option<Uint128>,
+  pub rate_limit: RateLimitConfig,
+}
+
+#[cw_serde]
+pub struct Client {
+  pub address: Option<Addr>,
+  pub is_suspended: bool,
   pub connected_at: Timestamp,
   pub revenue: Uint128,
   pub expenditure: Uint128,
-  pub is_suspended: bool,
+  pub config: ClientConfig,
 }
 
 #[cw_serde]
@@ -87,7 +93,7 @@ pub struct TaxRecipient {
 #[cw_serde]
 pub struct LiquidityUsage {
   pub initial_liquidity: Uint128,
-  pub total_outlay: Uint128,
+  pub agg_payout: Uint128,
   pub time: Timestamp,
 }
 
@@ -111,21 +117,25 @@ impl Client {
   pub fn new(
     connected_at: Timestamp,
     address: Option<Addr>,
-    allowance: Option<Uint128>,
+    budget: Option<Uint128>,
     name: Option<String>,
     description: Option<String>,
     url: Option<String>,
+    rate_limit: RateLimitConfig,
   ) -> Self {
     Self {
       address,
-      name,
-      description,
-      url,
-      allowance,
       connected_at,
       expenditure: Uint128::zero(),
       revenue: Uint128::zero(),
       is_suspended: false,
+      config: ClientConfig {
+        name,
+        rate_limit,
+        description,
+        url,
+        budget,
+      },
     }
   }
 }

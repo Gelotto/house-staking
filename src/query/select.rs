@@ -86,7 +86,7 @@ pub fn select(
               usage.initial_liquidity,
               Uint128::from(config.account_rate_limit.max_pct_change),
             );
-            usage.total_outlay >= rate_limiting_thresh_amount
+            usage.agg_payout >= rate_limiting_thresh_amount
           }
         } else {
           false

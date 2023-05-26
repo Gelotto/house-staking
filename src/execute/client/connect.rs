@@ -2,7 +2,7 @@ use crate::{
   error::{ContractError, ContractResult},
   models::Client,
   msg::ClientInitArgs,
-  state::{CLIENTS, N_CLIENTS},
+  state::{CLIENTS, CONFIG, N_CLIENTS},
   utils::increment,
 };
 use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response};
@@ -14,6 +14,7 @@ pub fn connect(
   init_args: ClientInitArgs,
 ) -> ContractResult<Response> {
   let action = "connect";
+  let config = CONFIG.load(deps.storage)?;
 
   if let Some(addr) = &init_args.address {
     // save the client or error if already exists
@@ -28,10 +29,13 @@ pub fn connect(
           Ok(Client::new(
             env.block.time,
             None,
-            init_args.allowance,
+            init_args.budget,
             init_args.name,
             init_args.description,
             init_args.url,
+            init_args
+              .rate_limit
+              .unwrap_or(config.client_rate_limit.clone()),
           ))
         }
       },

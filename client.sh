@@ -72,6 +72,25 @@ connect-client() {
   echo $response | ./bin/utils/base64-decode-attributes | jq
 }
 
+resume-client() {
+  sender=$1
+  addr=$2
+  msg='{"client":{"resume":{"client":"'$addr'"}}}'
+  flags="\
+  --node $NODE \
+  --gas-prices 0.025$DENOM \
+  --chain-id $CHAIN_ID \
+  --from $sender \
+  --gas auto \
+  --gas-adjustment 1.5 \
+  --broadcast-mode block \
+  --output json \
+  -y \
+  "
+  echo junod tx wasm execute $CONTRACT_ADDR "$msg" "$flags"
+  response=$(junod tx wasm execute "$CONTRACT_ADDR" "$msg" $flags)
+  echo $response | ./bin/utils/base64-decode-attributes | jq
+}
 
 query-select() {
   wallet=$1
@@ -91,6 +110,9 @@ case $CMD in
     ;;
   connect-client)
     connect-client $1
+    ;;
+  resume-client)
+    resume-client $1 $2
     ;;
   query-select) 
     query-select $1

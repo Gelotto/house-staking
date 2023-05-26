@@ -2,7 +2,9 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Uint128};
 use cw_lib::models::{Owner, Token};
 
-use crate::models::{BankAccount, Client, Config, Pool, StakeAccount, TaxRecipient};
+use crate::models::{
+  BankAccount, Client, Config, Pool, RateLimitConfig, StakeAccount, TaxRecipient,
+};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -18,7 +20,8 @@ pub struct ClientInitArgs {
   pub name: Option<String>,
   pub description: Option<String>,
   pub url: Option<String>,
-  pub allowance: Option<Uint128>,
+  pub budget: Option<Uint128>,
+  pub rate_limit: Option<RateLimitConfig>,
 }
 
 #[cw_serde]

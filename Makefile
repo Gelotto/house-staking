@@ -30,5 +30,8 @@ devnet:
 connect:
 	./client.sh connect-client $(network) $(tag) $(sender)
 
+resume:
+	./client.sh resume-client $(network) $(tag) $(sender) $(address)
+
 select:
 	./client.sh query-select $(network) $(tag) $(sender)
