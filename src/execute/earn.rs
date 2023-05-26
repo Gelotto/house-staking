@@ -2,8 +2,8 @@ use crate::{
   error::{ContractError, ContractResult},
   models::{Client, LedgerEntry},
   state::{
-    ensure_has_funds, ensure_min_amount, ensure_sender_is_valid_client, BANK_ACCOUNTS, CONFIG,
-    LEDGER, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, POOL, TAX_RATE,
+    ensure_has_funds, ensure_min_amount, validate_and_update_client, BANK_ACCOUNTS, CONFIG, LEDGER,
+    N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, POOL, TAX_RATE,
   },
   utils::{increment, mul_pct},
 };
@@ -21,7 +21,7 @@ pub fn earn(
   let from_address = from_address.unwrap_or(info.sender.clone());
 
   ensure_min_amount(revenue, Uint128::one())?;
-  ensure_sender_is_valid_client(
+  validate_and_update_client(
     deps.storage,
     &info.sender,
     Some(&|client: &mut Client| client.revenue += revenue),

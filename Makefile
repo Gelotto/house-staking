@@ -27,8 +27,8 @@ schemas:
 devnet:
 	./bin/devnet
 
-connect-client:
+connect:
 	./client.sh connect-client $(network) $(tag) $(sender)
 
 select:
-	./client.sh query-select $(network) $(tag)
+	./client.sh query-select $(network) $(tag) $(sender)

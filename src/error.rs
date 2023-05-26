@@ -11,6 +11,24 @@ pub enum ContractError {
 
   #[error("ValidationError")]
   ValidationError {},
+
+  #[error("IsSuspended")]
+  IsSuspended,
+
+  #[error("ClientNotFound")]
+  ClientNotFound,
+
+  #[error("StakeAccountNotFound")]
+  StakeAccountNotFound,
+
+  #[error("BankAccountNotFound")]
+  BankAccountNotFound,
+
+  #[error("InsufficientFunds")]
+  InsufficientFunds,
+
+  #[error("InsufficientAmount")]
+  InsufficientAmount,
 }
 
 pub type ContractResult<T> = Result<T, ContractError>;

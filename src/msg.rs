@@ -24,9 +24,9 @@ pub struct ClientInitArgs {
 #[cw_serde]
 pub enum ClientMsg {
   Connect(ClientInitArgs),
-  Disconnect { client: Addr },
-  Suspend { client: Addr },
-  Resume { client: Addr },
+  Disconnect { address: Addr },
+  Suspend { address: Addr },
+  Resume { address: Addr },
 }
 
 #[cw_serde]
@@ -84,6 +84,7 @@ pub struct Metadata {
 pub struct AccountView {
   pub stake: Option<StakeAccount>,
   pub bank: Option<BankAccount>,
+  pub is_suspended: bool,
 }
 
 #[cw_serde]

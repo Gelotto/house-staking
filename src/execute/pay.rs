@@ -1,58 +1,180 @@
 use crate::{
   error::ContractResult,
-  models::{Client, LedgerEntry},
+  models::{LedgerEntry, LiquidityUsage, Pool},
   state::{
-    ensure_min_amount, ensure_sender_is_valid_client, BANK_ACCOUNTS, LEDGER, N_LEDGER_ENTRIES,
-    N_STAKE_ACCOUNTS, POOL,
+    ensure_min_amount, validate_and_update_client, BANK_ACCOUNTS, CLIENTS, CONFIG, LEDGER,
+    LIQUIDITY_USAGE, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, POOL,
   },
-  utils::increment,
+  utils::{increment, mul_pct},
 };
-use cosmwasm_std::{attr, Addr, DepsMut, Env, MessageInfo, Response, Uint128};
+use cosmwasm_std::{
+  attr, Addr, Api, DepsMut, Env, MessageInfo, Response, Storage, Timestamp, Uint128,
+};
 use cw_lib::utils::funds::build_send_submsg;
 
 pub fn pay(
   deps: DepsMut,
-  _env: Env,
+  env: Env,
   info: MessageInfo,
   payment: Uint128,
   recipient: Addr,
 ) -> ContractResult<Response> {
   ensure_min_amount(payment, Uint128::one())?;
-  ensure_sender_is_valid_client(
-    deps.storage,
-    &info.sender,
-    Some(&|client: &mut Client| client.expenditure += payment),
-  )?;
 
   let action = "pay";
-  let i_entry = increment(deps.storage, &N_LEDGER_ENTRIES, 1)? - 1;
+  let config = CONFIG.load(deps.storage)?;
   let mut pool = POOL.load(deps.storage)?;
-  let entry = LedgerEntry {
-    ref_count: N_STAKE_ACCOUNTS.load(deps.storage)?,
-    liquidity: pool.liquidity,
-    delegation: pool.delegation,
-    delta_revenue: Uint128::zero(),
-    delta_dividends: Uint128::zero(),
-    delta_loss: payment,
-  };
 
-  // outlays are paid entirely from house liquidity
-  pool.liquidity -= entry.delta_loss;
+  // suspend the client if this payment has exceeded the global 24h liquidity
+  // expenditure limit. rate limiting is applied both at the client contract
+  // level and the individual user account level.
+  let client_rate_limit_triggered = is_rate_limited(
+    deps.api,
+    deps.storage,
+    env.block.time,
+    &pool,
+    payment,
+    info.sender.clone(),
+    config.client_rate_limit.interval_secs.into(),
+    config.client_rate_limit.max_pct_change,
+  )?;
 
-  LEDGER.save(deps.storage, i_entry, &entry)?;
-  POOL.save(deps.storage, &pool)?;
+  let account_rate_limit_triggered = is_rate_limited(
+    deps.api,
+    deps.storage,
+    env.block.time,
+    &pool,
+    payment,
+    recipient.clone(),
+    config.account_rate_limit.interval_secs.into(),
+    config.account_rate_limit.max_pct_change,
+  )?;
 
-  let mut resp = Response::new().add_attributes(vec![attr("action", action)]);
+  deps.api.debug(
+    format!(
+      ">>> client_rate_limit_triggered: {:?}",
+      client_rate_limit_triggered
+    )
+    .as_str(),
+  );
 
-  // if the recipient address has a bank acocunt, simply increment its balance;
-  // otherwise, send the recipient GLTO directly.
-  if let Some(mut bank_account) = BANK_ACCOUNTS.may_load(deps.storage, recipient.clone())? {
-    bank_account.balance += payment;
-    BANK_ACCOUNTS.save(deps.storage, recipient.clone(), &bank_account)?;
-  } else {
-    // transfer GLTO to recipient directly
-    resp = resp.add_submessage(build_send_submsg(&recipient, payment, &pool.token)?);
+  deps.api.debug(
+    format!(
+      ">>> account_rate_limit_triggered: {:?}",
+      account_rate_limit_triggered
+    )
+    .as_str(),
+  );
+
+  // build base response
+  let mut resp = Response::new().add_attributes(vec![
+    attr("action", action),
+    attr("amount", payment.to_string()),
+    attr(
+      "rate_limit_triggered",
+      client_rate_limit_triggered.to_string(),
+    ),
+  ]);
+
+  let mut client = validate_and_update_client(deps.storage, &info.sender, None)?;
+
+  // apply liquidity rate limiting: if recipient address has a BankAccount,
+  // increment its balance; otherwise, send GLTO to the recipient address
+  // directly.
+  if !(client_rate_limit_triggered || account_rate_limit_triggered) {
+    // create and persist new ledger entry
+    let i_entry = increment(deps.storage, &N_LEDGER_ENTRIES, 1)? - 1;
+    let ref_count = N_STAKE_ACCOUNTS.load(deps.storage)?;
+    let entry = LedgerEntry {
+      ref_count,
+      liquidity: pool.liquidity,
+      delegation: pool.delegation,
+      delta_revenue: Uint128::zero(),
+      delta_dividends: Uint128::zero(),
+      delta_loss: payment,
+    };
+
+    // increment client's running total expenditure while subtracting it from
+    // the pool's global liquidity
+    client.expenditure += payment;
+    pool.liquidity -= payment;
+
+    LEDGER.save(deps.storage, i_entry, &entry)?;
+    POOL.save(deps.storage, &pool)?;
+
+    // ensure the payment can be made and build msg to transfer tokens to
+    // recipient if necessary
+    if let Some(mut bank_account) = BANK_ACCOUNTS.may_load(deps.storage, recipient.clone())? {
+      bank_account.balance += payment;
+      BANK_ACCOUNTS.save(deps.storage, recipient.clone(), &bank_account)?;
+    } else {
+      resp = resp.add_submessage(build_send_submsg(&recipient, payment, &pool.token)?);
+    }
+  } else if client_rate_limit_triggered {
+    // we auto-suspend the client if rate limiting was triggered
+    client.is_suspended = true;
   }
 
+  CLIENTS.save(deps.storage, info.sender.clone(), &client)?;
+
   Ok(resp)
+}
+
+fn is_rate_limited(
+  api: &dyn Api,
+  storage: &mut dyn Storage,
+  time: Timestamp,
+  pool: &Pool,
+  payment: Uint128,
+  addr: Addr,
+  interval_secs: u64,
+  pct: u16,
+) -> ContractResult<bool> {
+  // suspend the client if this payment has exceeded the global 24h liquidity
+  // expenditure limit.
+  let mut rate_limit_triggered = false;
+  LIQUIDITY_USAGE.update(storage, addr.clone(), |maybe_record| -> ContractResult<_> {
+    let mut record = maybe_record.unwrap_or_else(|| LiquidityUsage {
+      initial_liquidity: pool.liquidity,
+      total_outlay: Uint128::zero(),
+      time,
+    });
+
+    let delta_t = time.seconds() - record.time.seconds();
+
+    // reset the record if this block is happens within a new day
+    if delta_t >= interval_secs {
+      record.time = time;
+      record.total_outlay = payment;
+      record.initial_liquidity = payment;
+    } else {
+      record.total_outlay += payment;
+    }
+
+    // auto-suspend the client if this payment takes the client
+    // past its 24h allowed liquidity usage level.
+    let rate_limiting_thresh_amount = mul_pct(record.initial_liquidity, Uint128::from(pct));
+
+    if record.total_outlay >= rate_limiting_thresh_amount {
+      rate_limit_triggered = true;
+    }
+
+    api.debug(format!(">>> addr: {:?}", addr).as_str());
+    api.debug(format!(">>> delta_t: {:?}", delta_t).as_str());
+    api.debug(format!(">>> interval_secs: {:?}", interval_secs).as_str());
+    api.debug(format!(">>> total outlay: {:?}", record.total_outlay).as_str());
+    api.debug(
+      format!(
+        ">>> rate_limiting_thresh_amount: {:?}",
+        rate_limiting_thresh_amount
+      )
+      .as_str(),
+    );
+
+    Ok(record)
+  })?;
+  if rate_limit_triggered {
+    return Ok(true);
+  }
+  Ok(false)
 }

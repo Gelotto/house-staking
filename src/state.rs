@@ -1,6 +1,7 @@
 use crate::error::{ContractError, ContractResult};
 use crate::models::{
-  BankAccount, Client, Config, LedgerEntry, LedgerUpdates, Pool, StakeAccount, TaxRecipient,
+  BankAccount, Client, Config, LedgerEntry, LedgerUpdates, LiquidityUsage, Pool, StakeAccount,
+  TaxRecipient,
 };
 use crate::msg::InstantiateMsg;
 use cosmwasm_std::{Addr, Coin, DepsMut, Env, MessageInfo, Storage, Uint128};
@@ -20,6 +21,7 @@ pub const N_LEDGER_ENTRIES: Item<u32> = Item::new("n_ledger_entries");
 pub const N_CLIENTS: Item<u32> = Item::new("n_clients");
 pub const TAX_RECIPIENTS: Map<Addr, TaxRecipient> = Map::new("tax_recipients");
 pub const TAX_RATE: Item<u16> = Item::new("tax_rate");
+pub const LIQUIDITY_USAGE: Map<Addr, LiquidityUsage> = Map::new("client_metadata");
 
 pub fn initialize(
   deps: DepsMut,
@@ -50,7 +52,7 @@ pub fn load_stake_account(
   if let Some(account) = STAKE_ACCOUNTS.may_load(storage, addr.clone())? {
     Ok(account)
   } else {
-    Err(ContractError::NotAuthorized {})
+    Err(ContractError::StakeAccountNotFound)
   }
 }
 
@@ -61,7 +63,7 @@ pub fn load_bank_account(
   if let Some(account) = BANK_ACCOUNTS.may_load(storage, addr.clone())? {
     Ok(account)
   } else {
-    Err(ContractError::NotAuthorized {})
+    Err(ContractError::BankAccountNotFound)
   }
 }
 
@@ -120,7 +122,7 @@ pub fn sync_account_readonly(
   Ok(updates)
 }
 
-pub fn ensure_sender_is_valid_client(
+pub fn validate_and_update_client(
   storage: &mut dyn Storage,
   addr: &Addr,
   maybe_action: Option<&dyn Fn(&mut Client)>,
@@ -129,7 +131,7 @@ pub fn ensure_sender_is_valid_client(
     CLIENTS.update(storage, addr.clone(), |maybe_client| -> ContractResult<_> {
       if let Some(mut client) = maybe_client {
         if client.is_suspended {
-          return Err(ContractError::NotAuthorized {});
+          return Err(ContractError::IsSuspended);
         } else {
           if let Some(action) = maybe_action {
             action(&mut client);
@@ -137,7 +139,7 @@ pub fn ensure_sender_is_valid_client(
           Ok(client)
         }
       } else {
-        return Err(ContractError::NotAuthorized {});
+        return Err(ContractError::ClientNotFound);
       }
     })?,
   )
@@ -151,7 +153,7 @@ where
   T: std::cmp::PartialOrd,
 {
   if amount < min_amount {
-    Err(ContractError::NotAuthorized {})
+    Err(ContractError::InsufficientAmount)
   } else {
     Ok(())
   }
@@ -164,7 +166,7 @@ pub fn ensure_has_funds(
 ) -> ContractResult<()> {
   if !has_funds(funds, amount, denom) {
     // insufficient funds
-    return Err(ContractError::NotAuthorized {});
+    return Err(ContractError::InsufficientFunds);
   }
   Ok(())
 }

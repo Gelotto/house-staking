@@ -57,3 +57,7 @@ fn calc_claim_amount(
     )
     .min(Uint128::from(900u32))
 }
+
+// Each time the house pays out, try to find a rate limiting record for the current 24 hour period.
+// If there is one, increment the running total expenditure. If the percent change from the initial
+// value stored for the hour, we suspend. If there is no record, we create one and initialize it

@@ -74,7 +74,8 @@ connect-client() {
 
 
 query-select() {
-  query='{"select":{"fields":null}}'
+  wallet=$1
+  query='{"select":{"fields":null,"wallet":"'$wallet'"}}'
   flags="--chain-id $CHAIN_ID --output json --node $NODE"
   echo junod query wasm contract-state smart $CONTRACT_ADDR "$query" $flags
   response=$(junod query wasm contract-state smart $CONTRACT_ADDR "$query" $flags)
@@ -92,7 +93,7 @@ case $CMD in
     connect-client $1
     ;;
   query-select) 
-    query-select
+    query-select $1
     ;;
   *)
     echo "unrecognized option: $CMD" >&2

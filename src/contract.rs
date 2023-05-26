@@ -39,9 +39,9 @@ pub fn execute(
     },
     ExecuteMsg::Client(msg) => match msg {
       ClientMsg::Connect(init_args) => execute::client::connect(deps, env, info, init_args),
-      ClientMsg::Disconnect { client } => execute::client::disconnect(deps, env, info, client),
-      ClientMsg::Suspend { client } => execute::client::suspend(deps, env, info, client),
-      ClientMsg::Resume { client } => execute::client::resume(deps, env, info, client),
+      ClientMsg::Disconnect { address } => execute::client::disconnect(deps, env, info, address),
+      ClientMsg::Suspend { address } => execute::client::suspend(deps, env, info, address),
+      ClientMsg::Resume { address } => execute::client::resume(deps, env, info, address),
     },
     ExecuteMsg::Credit(msg) => match msg {
       CreditMsg::Deposit { amount } => execute::credit::deposit(deps, env, info, amount),
@@ -57,11 +57,11 @@ pub fn execute(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(
   deps: Deps,
-  _env: Env,
+  env: Env,
   msg: QueryMsg,
 ) -> ContractResult<Binary> {
   let result = match msg {
-    QueryMsg::Select { fields, wallet } => to_binary(&query::select(deps, fields, wallet)?),
+    QueryMsg::Select { fields, wallet } => to_binary(&query::select(deps, env, fields, wallet)?),
   }?;
   Ok(result)
 }

@@ -21,6 +21,7 @@ pub fn withdraw(
     // if the unbonding period has been met, remove the StakeAccount and create a submsg
     // for transferring the sender's tokens to the sender.
     if env.block.time.nanos() > unbonding.time.nanos() + config.unbonding_period_nanos {
+      // remove the staking account
       STAKE_ACCOUNTS.remove(deps.storage, info.sender.clone());
       decrement(deps.storage, &N_STAKE_ACCOUNTS, 1)?;
       resp = resp.add_submessage(build_send_submsg(&info.sender, unbonding.amount, &token)?);

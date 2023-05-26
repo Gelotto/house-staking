@@ -1,11 +1,19 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Timestamp, Uint128};
+use cosmwasm_std::{Addr, Timestamp, Uint128, Uint64};
 use cw_lib::models::Token;
 
 #[cw_serde]
 pub struct Config {
   pub restake_rate: u16,
   pub unbonding_period_nanos: u64,
+  pub client_rate_limit: RateLimitConfig,
+  pub account_rate_limit: RateLimitConfig,
+}
+
+#[cw_serde]
+pub struct RateLimitConfig {
+  pub interval_secs: Uint64,
+  pub max_pct_change: u16,
 }
 
 #[cw_serde]
@@ -74,6 +82,13 @@ pub struct TaxRecipient {
   pub name: Option<String>,
   pub description: Option<String>,
   pub url: Option<String>,
+}
+
+#[cw_serde]
+pub struct LiquidityUsage {
+  pub initial_liquidity: Uint128,
+  pub total_outlay: Uint128,
+  pub time: Timestamp,
 }
 
 impl StakeAccount {
