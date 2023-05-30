@@ -1,4 +1,3 @@
-#[cfg(not(feature = "library"))]
 use crate::error::ContractResult;
 use crate::execute;
 use crate::msg::{ClientMsg, CreditMsg, ExecuteMsg, InstantiateMsg, MigrateMsg, PoolMsg, QueryMsg};
@@ -11,7 +10,7 @@ use cw2::set_contract_version;
 const CONTRACT_NAME: &str = "crates.io:house-staking";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[cfg_attr(not(feature = "library"), entry_point)]
+#[entry_point]
 pub fn instantiate(
   deps: DepsMut,
   env: Env,
@@ -23,7 +22,7 @@ pub fn instantiate(
   Ok(Response::new().add_attribute("action", "instantiate"))
 }
 
-#[cfg_attr(not(feature = "library"), entry_point)]
+#[entry_point]
 pub fn execute(
   deps: DepsMut,
   env: Env,
@@ -47,14 +46,18 @@ pub fn execute(
       CreditMsg::Deposit { amount } => execute::credit::deposit(deps, env, info, amount),
       CreditMsg::Withdraw { amount } => execute::credit::withdraw(deps, env, info, amount),
     },
-    ExecuteMsg::Earn { revenue, source } => execute::earn(deps, env, info, revenue, source),
-    ExecuteMsg::Pay { payment, recipient } => execute::pay(deps, env, info, payment, recipient),
     ExecuteMsg::SetConfig { config } => execute::set_config(deps, env, info, config),
     ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),
+    ExecuteMsg::Process {
+      source,
+      target,
+      revenue,
+      payment,
+    } => execute::process(deps, env, info, source, target, revenue, payment),
   }
 }
 
-#[cfg_attr(not(feature = "library"), entry_point)]
+#[entry_point]
 pub fn query(
   deps: Deps,
   env: Env,
@@ -62,11 +65,12 @@ pub fn query(
 ) -> ContractResult<Binary> {
   let result = match msg {
     QueryMsg::Select { fields, wallet } => to_binary(&query::select(deps, env, fields, wallet)?),
+    QueryMsg::Client { address } => to_binary(&query::query_client(deps, address)?),
   }?;
   Ok(result)
 }
 
-#[cfg_attr(not(feature = "library"), entry_point)]
+#[entry_point]
 pub fn migrate(
   _deps: DepsMut,
   _env: Env,

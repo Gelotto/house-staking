@@ -15,20 +15,20 @@ pub fn select(
   fields: Option<Vec<String>>,
   wallet: Option<Addr>,
 ) -> StdResult<SelectResponse> {
-  let loader = Repository::loader(deps.storage, &fields);
+  let loader = Repository::loader(deps.storage, &fields, &wallet);
   let config = CONFIG.load(deps.storage)?;
 
   Ok(SelectResponse {
     owner: loader.get("owner", &OWNER)?,
 
     // house configuration settings
-    config: loader.view("config", || Ok(Some(config.clone())))?,
+    config: loader.view("config", |_| Ok(Some(config.clone())))?,
 
     // aggregate totals
     pool: loader.get("pool", &POOL)?,
 
     // stats and metadata about the contract
-    metadata: loader.view("metadata", || {
+    metadata: loader.view("metadata", |_| {
       Ok(Some(Metadata {
         n_accounts: N_STAKE_ACCOUNTS.load(deps.storage)?,
         n_clients: N_CLIENTS.load(deps.storage)?,
@@ -37,7 +37,7 @@ pub fn select(
     })?,
 
     // tax recipients list
-    taxes: loader.view("taxes", || {
+    taxes: loader.view("taxes", |_| {
       Ok(Some(
         TAX_RECIPIENTS
           .range(deps.storage, None, None, Order::Ascending)
@@ -51,7 +51,7 @@ pub fn select(
     })?,
 
     // client contracts connected to the house
-    clients: loader.view("clients", || {
+    clients: loader.view("clients", |_| {
       Ok(Some(
         CLIENTS
           .range(deps.storage, None, None, Order::Ascending)
@@ -65,7 +65,12 @@ pub fn select(
     })?,
 
     // sender's delegation account
-    account: loader.view_by_wallet("account", wallet, |wallet| {
+    account: loader.view("account", |maybe_wallet| {
+      if maybe_wallet.is_none() {
+        return Ok(None);
+      }
+
+      let wallet = maybe_wallet.unwrap();
       let maybe_bank_account = BANK_ACCOUNTS.may_load(deps.storage, wallet.clone())?;
       let mut maybe_stake_account = STAKE_ACCOUNTS.may_load(deps.storage, wallet.clone())?;
 
@@ -90,9 +95,10 @@ pub fn select(
           }
         } else {
           false
-        };
+        } && maybe_stake_account.is_some();
 
       maybe_stake_account = if let Some(mut stake_account) = maybe_stake_account {
+        stake_account.is_suspended = Some(is_suspended);
         if sync_account_readonly(deps.storage, &mut stake_account).is_ok() {
           Some(stake_account)
         } else {
@@ -104,7 +110,7 @@ pub fn select(
       Ok(Some(AccountView {
         bank: maybe_bank_account,
         stake: maybe_stake_account,
-        is_suspended,
+        client: CLIENTS.may_load(deps.storage, wallet.clone())?,
       }))
     })?,
   })

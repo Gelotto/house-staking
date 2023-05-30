@@ -23,7 +23,7 @@ pub fn unstake(
     if let Some(mut info) = account.unbonding.clone() {
       let config = CONFIG.load(deps.storage)?;
       let time_since = env.block.time.nanos() - info.time.nanos();
-      if time_since <= config.unbonding_period_nanos {
+      if time_since <= config.unbonding_period_nanos.u64() {
         return Err(ContractError::NotAuthorized {});
       }
       info.amount += amount;

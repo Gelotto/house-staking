@@ -9,6 +9,9 @@ pub enum ContractError {
   #[error("NotAuthorized")]
   NotAuthorized {},
 
+  #[error("InvalidAddress")]
+  InvalidAddress,
+
   #[error("ValidationError")]
   ValidationError {},
 

@@ -5,7 +5,7 @@ use cw_lib::models::Token;
 #[cw_serde]
 pub struct Config {
   pub restake_rate: u16,
-  pub unbonding_period_nanos: u64,
+  pub unbonding_period_nanos: Uint64,
   pub account_rate_limit: RateLimitConfig,
   pub client_rate_limit: RateLimitConfig,
 }
@@ -33,6 +33,7 @@ pub struct StakeAccount {
   pub liquidity: Uint128,
   pub unbonding: Option<UnbondingInfo>,
   pub offset: u32,
+  pub is_suspended: Option<bool>,
 }
 
 #[cw_serde]
@@ -109,6 +110,7 @@ impl StakeAccount {
       dividends: Uint128::zero(),
       address: None,
       unbonding: None,
+      is_suspended: Some(false),
     }
   }
 }

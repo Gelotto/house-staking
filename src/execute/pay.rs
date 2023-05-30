@@ -52,30 +52,11 @@ pub fn pay(
     config.account_rate_limit.max_pct_change,
   )?;
 
-  deps.api.debug(
-    format!(
-      ">>> client_rate_limit_triggered: {:?}",
-      client_rate_limit_triggered
-    )
-    .as_str(),
-  );
-
-  deps.api.debug(
-    format!(
-      ">>> account_rate_limit_triggered: {:?}",
-      account_rate_limit_triggered
-    )
-    .as_str(),
-  );
-
   // build base response
   let mut resp = Response::new().add_attributes(vec![
     attr("action", action),
     attr("amount", payment.to_string()),
-    attr(
-      "rate_limit_triggered",
-      client_rate_limit_triggered.to_string(),
-    ),
+    attr("throttled", client_rate_limit_triggered.to_string()),
   ]);
 
   // apply liquidity rate limiting: if recipient address has a BankAccount,

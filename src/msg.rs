@@ -51,13 +51,11 @@ pub enum ExecuteMsg {
   Client(ClientMsg),
   Pool(PoolMsg),
   Credit(CreditMsg),
-  Earn {
+  Process {
+    source: Addr,
+    target: Addr,
     revenue: Uint128,
-    source: Option<Addr>,
-  },
-  Pay {
     payment: Uint128,
-    recipient: Addr,
   },
   SetConfig {
     config: Config,
@@ -67,6 +65,9 @@ pub enum ExecuteMsg {
 
 #[cw_serde]
 pub enum QueryMsg {
+  Client {
+    address: Addr,
+  },
   Select {
     fields: Option<Vec<String>>,
     wallet: Option<Addr>,
@@ -87,7 +88,7 @@ pub struct Metadata {
 pub struct AccountView {
   pub stake: Option<StakeAccount>,
   pub bank: Option<BankAccount>,
-  pub is_suspended: bool,
+  pub client: Option<Client>,
 }
 
 #[cw_serde]
@@ -99,4 +100,9 @@ pub struct SelectResponse {
   pub account: Option<AccountView>,
   pub taxes: Option<Vec<TaxRecipient>>,
   pub metadata: Option<Metadata>,
+}
+
+#[cw_serde]
+pub struct ClientResponse {
+  pub client: Option<Client>,
 }
