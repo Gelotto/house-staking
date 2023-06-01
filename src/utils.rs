@@ -30,7 +30,7 @@ pub fn mul_pct(
   total: Uint128,
   pct: Uint128,
 ) -> Uint128 {
-  total.multiply_ratio(pct, Uint128::from(1000u128))
+  total.multiply_ratio(pct, Uint128::from(1_000_000u128))
 }
 
 pub fn require_valid_address(

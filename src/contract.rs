@@ -30,30 +30,30 @@ pub fn execute(
   msg: ExecuteMsg,
 ) -> ContractResult<Response> {
   match msg {
+    ExecuteMsg::SetConfig { config } => execute::set_config(deps, env, info, config),
+    ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),
+    ExecuteMsg::Process { incoming, outgoing } => {
+      execute::process(deps, env, info, incoming, outgoing)
+    },
+
     ExecuteMsg::Pool(msg) => match msg {
       PoolMsg::Stake { amount } => execute::pool::stake(deps, env, info, amount),
       PoolMsg::Unstake => execute::pool::unstake(deps, env, info),
       PoolMsg::Withdraw => execute::pool::withdraw(deps, env, info),
       PoolMsg::Claim => execute::pool::claim(deps, env, info),
     },
+
     ExecuteMsg::Client(msg) => match msg {
       ClientMsg::Connect(init_args) => execute::client::connect(deps, env, info, init_args),
       ClientMsg::Disconnect { address } => execute::client::disconnect(deps, env, info, address),
       ClientMsg::Suspend { address } => execute::client::suspend(deps, env, info, address),
       ClientMsg::Resume { address } => execute::client::resume(deps, env, info, address),
     },
+
     ExecuteMsg::Credit(msg) => match msg {
       CreditMsg::Deposit { amount } => execute::credit::deposit(deps, env, info, amount),
       CreditMsg::Withdraw { amount } => execute::credit::withdraw(deps, env, info, amount),
     },
-    ExecuteMsg::SetConfig { config } => execute::set_config(deps, env, info, config),
-    ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),
-    ExecuteMsg::Process {
-      source,
-      target,
-      revenue,
-      payment,
-    } => execute::process(deps, env, info, source, target, revenue, payment),
   }
 }
 
@@ -63,11 +63,10 @@ pub fn query(
   env: Env,
   msg: QueryMsg,
 ) -> ContractResult<Binary> {
-  let result = match msg {
+  Ok(match msg {
     QueryMsg::Select { fields, wallet } => to_binary(&query::select(deps, env, fields, wallet)?),
     QueryMsg::Client { address } => to_binary(&query::query_client(deps, address)?),
-  }?;
-  Ok(result)
+  }?)
 }
 
 #[entry_point]

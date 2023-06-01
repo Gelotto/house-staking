@@ -12,7 +12,7 @@ FILE_CODE_ID="code-id"
 echo "using build dir $BUILD_DIR"
 CODE_ID=$(cat $BUILD_DIR/$FILE_CODE_ID)
 
-INSTANTIATE_MSG='{"config":{"unbonding_period_nanos":60000000000,"restake_rate":900,"client_rate_limit":{"max_pct_change":300,"interval_secs":"86400"},"account_rate_limit":{"max_pct_change":50,"interval_secs":"600"}},"token":{"cw20":{"address":"juno1eskyzwfqpydr87m9h8yh7g6lv6k8sj22k6an9zlk632u47kvahssm5x6m5"}}}'
+INSTANTIATE_MSG='{"config":{"unbonding_period_seconds":600,"restake_rate":900000,"client_rate_limit":{"max_pct_change":300000,"interval_seconds":"86400"},"account_rate_limit":{"max_pct_change":100000,"interval_seconds":"600"}},"token":{"cw20":{"address":"juno1eskyzwfqpydr87m9h8yh7g6lv6k8sj22k6an9zlk632u47kvahssm5x6m5"}}}'
 
 case $NETWORK in
   devnet)

@@ -4,16 +4,16 @@ use cw_lib::models::Token;
 
 #[cw_serde]
 pub struct Config {
-  pub restake_rate: u16,
-  pub unbonding_period_nanos: Uint64,
+  pub restake_rate: Uint128,
+  pub unbonding_seconds: Uint64,
   pub account_rate_limit: RateLimitConfig,
-  pub client_rate_limit: RateLimitConfig,
+  pub default_client_rate_limit: RateLimitConfig,
 }
 
 #[cw_serde]
 pub struct RateLimitConfig {
-  pub interval_secs: Uint64,
-  pub max_pct_change: u16,
+  pub interval_seconds: Uint64,
+  pub max_pct_change: Uint128,
 }
 
 #[cw_serde]
@@ -84,7 +84,7 @@ pub struct LedgerUpdates {
 
 #[cw_serde]
 pub struct TaxRecipient {
-  pub pct: u16,
+  pub pct: Uint128,
   pub addr: Option<Addr>,
   pub name: Option<String>,
   pub description: Option<String>,
@@ -96,6 +96,12 @@ pub struct LiquidityUsage {
   pub initial_liquidity: Uint128,
   pub agg_payout: Uint128,
   pub time: Timestamp,
+}
+
+#[cw_serde]
+pub struct AccountTokenAmount {
+  pub address: Addr,
+  pub amount: Uint128,
 }
 
 impl StakeAccount {

@@ -35,7 +35,7 @@ pub fn connect(
             init_args.url,
             init_args
               .rate_limit
-              .unwrap_or(config.client_rate_limit.clone()),
+              .unwrap_or(config.default_client_rate_limit.clone()),
           ))
         }
       },

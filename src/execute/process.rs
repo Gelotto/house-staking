@@ -1,6 +1,6 @@
 use crate::{
-  error::ContractResult,
-  models::{Client, LedgerEntry, LiquidityUsage, Pool},
+  error::{ContractError, ContractResult},
+  models::{AccountTokenAmount, Client, LedgerEntry, LiquidityUsage, Pool},
   state::{
     ensure_has_funds, ensure_min_amount, validate_and_update_client, BANK_ACCOUNTS, CLIENTS,
     CONFIG, LEDGER, LIQUIDITY_USAGE, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, POOL, TAX_RATE,
@@ -19,45 +19,68 @@ pub fn process(
   deps: DepsMut,
   env: Env,
   info: MessageInfo,
-  source: Addr,
-  target: Addr,
-  revenue: Uint128,
-  payment: Uint128,
+  maybe_incoming: Option<AccountTokenAmount>,
+  maybe_outgoing: Option<AccountTokenAmount>,
 ) -> ContractResult<Response> {
-  let action = "process";
+  if maybe_incoming.is_none() && maybe_outgoing.is_none() {
+    return Err(ContractError::MissingSourceOrTarget);
+  }
+
   let pool = POOL.load(deps.storage)?;
-  let mut resp = Response::new().add_attributes(vec![attr("action", action)]);
+  let incoming = maybe_incoming.unwrap_or_else(|| AccountTokenAmount {
+    address: info.sender.clone(),
+    amount: Uint128::zero(),
+  });
+
+  let mut resp = Response::new().add_attributes(vec![attr("action", "process")]);
 
   // transfer all income to house.
   // TODO: check if credit available from source
-  match &pool.token {
-    Token::Native { denom } => {
-      ensure_has_funds(&info.funds, denom, revenue)?;
-    },
-    Token::Cw20 { address } => {
-      resp = resp.add_message(build_cw20_transfer_from_msg(
-        &source,
-        &env.contract.address,
-        address,
-        revenue,
-      )?)
-    },
+  if !incoming.amount.is_zero() {
+    match &pool.token {
+      Token::Native { denom } => {
+        ensure_has_funds(&info.funds, denom, incoming.amount)?;
+      },
+      Token::Cw20 { address } => {
+        resp = resp.add_message(build_cw20_transfer_from_msg(
+          &incoming.address,
+          &env.contract.address,
+          address,
+          incoming.amount,
+        )?)
+      },
+    }
   }
 
   // add or subtract liquidity from the house
-  if payment != revenue {
-    resp = if payment > revenue {
-      // target account profits
-      pay(deps, env, info, payment - revenue, &target, &resp)?
-    } else {
-      // the house profits
-      earn(deps, env, info, revenue - payment, &resp)?
-    };
-  }
-
-  // send any payment to the target address
-  if !payment.is_zero() {
-    resp = resp.add_submessage(build_send_submsg(&target, payment, &pool.token)?);
+  if let Some(outgoing) = maybe_outgoing {
+    if outgoing.amount != incoming.amount {
+      resp = if outgoing.amount > incoming.amount {
+        // target account profits
+        pay(
+          deps,
+          env,
+          info,
+          outgoing.amount - incoming.amount,
+          &outgoing.address,
+          &resp,
+        )?
+      } else {
+        // the house profits
+        earn(deps, env, info, incoming.amount - outgoing.amount, &resp)?
+      };
+    }
+    // send any payment tokens to target address
+    if !outgoing.amount.is_zero() {
+      resp = resp.add_submessage(build_send_submsg(
+        &outgoing.address,
+        outgoing.amount,
+        &pool.token,
+      )?);
+    }
+  } else if !incoming.amount.is_zero() {
+    // the house profits
+    earn(deps, env, info, incoming.amount, &resp)?;
   }
 
   Ok(resp)
@@ -89,7 +112,7 @@ pub fn pay(
     &pool,
     payment,
     info.sender.clone(),
-    client.config.rate_limit.interval_secs.into(),
+    client.config.rate_limit.interval_seconds.into(),
     client.config.rate_limit.max_pct_change,
   )?;
 
@@ -100,7 +123,7 @@ pub fn pay(
     &pool,
     payment,
     recipient.clone(),
-    config.account_rate_limit.interval_secs.into(),
+    config.account_rate_limit.interval_seconds.into(),
     config.account_rate_limit.max_pct_change,
   )?;
 
@@ -160,7 +183,7 @@ fn is_rate_limited(
   payment: Uint128,
   addr: Addr,
   interval_secs: u64,
-  pct: u16,
+  pct: Uint128,
 ) -> ContractResult<bool> {
   // suspend the client or account address if this payment has exceeded the
   // liquidity usage limit.

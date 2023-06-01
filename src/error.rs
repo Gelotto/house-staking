@@ -32,6 +32,9 @@ pub enum ContractError {
 
   #[error("InsufficientAmount")]
   InsufficientAmount,
+
+  #[error("MissingSourceOrTarget")]
+  MissingSourceOrTarget,
 }
 
 pub type ContractResult<T> = Result<T, ContractError>;

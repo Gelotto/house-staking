@@ -3,7 +3,8 @@ use cosmwasm_std::{Addr, Uint128};
 use cw_lib::models::{Owner, Token};
 
 use crate::models::{
-  BankAccount, Client, Config, Pool, RateLimitConfig, StakeAccount, TaxRecipient,
+  AccountTokenAmount, BankAccount, Client, Config, Pool, RateLimitConfig, StakeAccount,
+  TaxRecipient,
 };
 
 #[cw_serde]
@@ -52,10 +53,8 @@ pub enum ExecuteMsg {
   Pool(PoolMsg),
   Credit(CreditMsg),
   Process {
-    source: Addr,
-    target: Addr,
-    revenue: Uint128,
-    payment: Uint128,
+    incoming: Option<AccountTokenAmount>,
+    outgoing: Option<AccountTokenAmount>,
   },
   SetConfig {
     config: Config,

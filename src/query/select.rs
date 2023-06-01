@@ -77,7 +77,7 @@ pub fn select(
       let is_suspended =
         if let Some(usage) = LIQUIDITY_USAGE.may_load(deps.storage, wallet.clone())? {
           let delta_t = env.block.time.seconds() - usage.time.seconds();
-          let limit_t = config.account_rate_limit.interval_secs.u64();
+          let limit_t = config.account_rate_limit.interval_seconds.u64();
           deps
             .api
             .debug(format!(">>> delta_t: {:?}", delta_t).as_str());

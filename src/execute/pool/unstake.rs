@@ -22,8 +22,8 @@ pub fn unstake(
     // abort if user is trying to unstake too soon after most recent prev attempt
     if let Some(mut info) = account.unbonding.clone() {
       let config = CONFIG.load(deps.storage)?;
-      let time_since = env.block.time.nanos() - info.time.nanos();
-      if time_since <= config.unbonding_period_nanos.u64() {
+      let time_since = env.block.time.seconds() - info.time.seconds();
+      if time_since <= config.unbonding_seconds.u64() {
         return Err(ContractError::NotAuthorized {});
       }
       info.amount += amount;
