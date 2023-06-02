@@ -1,6 +1,6 @@
 use crate::{
   error::{ContractError, ContractResult},
-  state::BANK_ACCOUNTS,
+  state::{amortize, BANK_ACCOUNTS},
 };
 use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response, Uint128};
 
@@ -29,6 +29,8 @@ pub fn withdraw(
       }
     },
   )?;
+
+  amortize(deps.storage)?;
 
   Ok(Response::new().add_attributes(vec![attr("action", action)]))
 }

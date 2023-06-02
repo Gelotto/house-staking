@@ -32,7 +32,7 @@ pub struct StakeAccount {
   pub dividends: Uint128,
   pub liquidity: Uint128,
   pub unbonding: Option<UnbondingInfo>,
-  pub offset: u32,
+  pub seq_no: Uint128,
   pub is_suspended: Option<bool>,
 }
 
@@ -75,11 +75,12 @@ pub struct LedgerEntry {
   pub delta_dividends: Uint128,
   pub delta_loss: Uint128,
   pub ref_count: u32,
+  pub tag: Uint128,
 }
 
 pub struct LedgerUpdates {
-  pub zombie_entry_indices: Vec<u32>,
-  pub updated_entries: Vec<(u32, LedgerEntry)>,
+  pub zombie_entry_indices: Vec<u128>,
+  pub updated_entries: Vec<(u128, LedgerEntry)>,
 }
 
 #[cw_serde]
@@ -104,13 +105,25 @@ pub struct AccountTokenAmount {
   pub amount: Uint128,
 }
 
+impl AccountTokenAmount {
+  pub fn new(
+    address: &Addr,
+    amount: Uint128,
+  ) -> Self {
+    Self {
+      address: address.clone(),
+      amount,
+    }
+  }
+}
+
 impl StakeAccount {
   pub fn new(
     delegation: Uint128,
-    offset: u32,
+    seq_no: Uint128,
   ) -> Self {
     Self {
-      offset,
+      seq_no,
       delegation,
       liquidity: delegation,
       dividends: Uint128::zero(),

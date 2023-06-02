@@ -1,7 +1,8 @@
 use crate::{
   error::{ContractError, ContractResult},
   models::UnbondingInfo,
-  state::{load_stake_account, sync_account, CONFIG, POOL, STAKE_ACCOUNTS},
+  state::{load_stake_account, sync_account, CONFIG, N_DELEGATION_MUTATIONS, POOL, STAKE_ACCOUNTS},
+  utils::increment,
 };
 use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response, Uint128};
 
@@ -42,6 +43,11 @@ pub fn unstake(
   }
 
   STAKE_ACCOUNTS.save(deps.storage, info.sender.clone(), &account)?;
+
+  // increment the delegation mutation counter, which lets the process method
+  // know that a new LedgerEntry should be created when nexted executed, instead
+  // of updating the existing latest entry.
+  increment(deps.storage, &N_DELEGATION_MUTATIONS, Uint128::one())?;
 
   Ok(Response::new().add_attributes(vec![
     attr("action", action),

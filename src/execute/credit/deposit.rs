@@ -1,12 +1,13 @@
 use crate::{
   error::{ContractError, ContractResult},
-  state::BANK_ACCOUNTS,
+  state::{amortize, ensure_has_funds, BANK_ACCOUNTS, POOL},
 };
 use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response, Uint128};
+use cw_lib::{models::Token, utils::funds::build_cw20_transfer_from_submsg};
 
 pub fn deposit(
   deps: DepsMut,
-  _env: Env,
+  env: Env,
   info: MessageInfo,
   amount: Uint128,
 ) -> ContractResult<Response> {
@@ -30,10 +31,30 @@ pub fn deposit(
     },
   )?;
 
-  // TODO: build transfer msg
-
-  Ok(Response::new().add_attributes(vec![
+  let pool = POOL.load(deps.storage)?;
+  let mut resp = Response::new().add_attributes(vec![
     attr("action", action),
     attr("amount", amount.to_string()),
-  ]))
+  ]);
+
+  // validate and take payment
+  match &pool.token {
+    Token::Native { denom } => {
+      ensure_has_funds(&info.funds, denom, amount)?;
+    },
+    Token::Cw20 {
+      address: cw20_token_address,
+    } => {
+      resp = resp.add_submessage(build_cw20_transfer_from_submsg(
+        &info.sender,
+        &env.contract.address,
+        cw20_token_address,
+        amount,
+      )?);
+    },
+  }
+
+  amortize(deps.storage)?;
+
+  Ok(resp)
 }

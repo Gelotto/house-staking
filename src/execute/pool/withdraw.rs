@@ -1,6 +1,6 @@
 use crate::{
   error::{ContractError, ContractResult},
-  state::{load_stake_account, CONFIG, N_STAKE_ACCOUNTS, POOL, STAKE_ACCOUNTS},
+  state::{amortize, load_stake_account, CONFIG, N_STAKE_ACCOUNTS, POOL, STAKE_ACCOUNTS},
   utils::decrement,
 };
 use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response};
@@ -34,6 +34,8 @@ pub fn withdraw(
     // not unbonding
     return Err(ContractError::NotAuthorized {});
   }
+
+  amortize(deps.storage)?;
 
   Ok(resp)
 }
