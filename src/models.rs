@@ -124,6 +124,15 @@ pub struct LiquidityUsage {
 }
 
 #[cw_serde]
+pub struct Usage {
+  pub start_liquidity: Uint128,
+  pub start_time: Timestamp,
+  pub prev_height: Uint64,
+  pub spent: Uint128,
+  pub added: Uint128,
+}
+
+#[cw_serde]
 pub struct AccountTokenAmount {
   pub address: Addr,
   pub amount: Uint128,

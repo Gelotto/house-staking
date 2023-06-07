@@ -1,7 +1,7 @@
 use crate::{
   error::{ContractError, ContractResult},
-  models::LiquidityUsage,
-  state::{ensure_sender_is_allowed, CLIENTS, LIQUIDITY_USAGE, POOL},
+  models::Usage,
+  state::{ensure_sender_is_allowed, CLIENTS, POOL, USAGE},
 };
 use cosmwasm_std::{attr, Addr, DepsMut, Env, MessageInfo, Response, Uint128};
 
@@ -31,14 +31,15 @@ pub fn resume(
   )?;
 
   // clear the client's liquidity usage
-  LIQUIDITY_USAGE.save(
+  USAGE.save(
     deps.storage,
     client_address.clone(),
-    &LiquidityUsage {
-      total_amount: Uint128::zero(),
-      initial_liquidity: pool.liquidity,
-      time: env.block.time,
-      height: env.block.height.into(),
+    &Usage {
+      spent: Uint128::zero(),
+      added: Uint128::zero(),
+      prev_height: env.block.height.into(),
+      start_liquidity: pool.liquidity,
+      start_time: env.block.time,
     },
   )?;
 

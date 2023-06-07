@@ -1,10 +1,12 @@
 use crate::{
   error::{ContractError, ContractResult},
-  models::{AccountTokenAmount, Client, Config, HouseEvent, LedgerEntry, LiquidityUsage, Pool},
+  models::{
+    AccountTokenAmount, Client, Config, HouseEvent, LedgerEntry, Pool, RateLimitConfig, Usage,
+  },
   state::{
-    amortize, authorize_and_update_client, ensure_has_funds, ensure_min_amount, is_rate_limited,
-    validate_address, CLIENTS, CONFIG, EVENTS, LEDGER, LEDGER_ENTRY_SEQ_NO, LIQUIDITY_USAGE,
-    N_DELEGATION_MUTATIONS, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, POOL,
+    amortize, authorize_and_update_client, ensure_has_funds, ensure_min_amount, load_client,
+    validate_address, CLIENTS, CONFIG, EVENTS, LEDGER, LEDGER_ENTRY_SEQ_NO, MAX_EVENT_QUEUE_SIZE,
+    N_DELEGATION_MUTATIONS, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, POOL, USAGE,
   },
   utils::{increment, mul_pct},
 };
@@ -16,6 +18,11 @@ use cw_lib::{
   utils::funds::{build_cw20_transfer_from_msg, build_send_submsg},
 };
 
+enum RateLimitEvent {
+  Throttled,
+  Triggered,
+}
+
 pub fn process(
   deps: DepsMut,
   env: Env,
@@ -24,32 +31,13 @@ pub fn process(
   maybe_incoming: Option<AccountTokenAmount>,
   maybe_outgoing: Option<AccountTokenAmount>,
 ) -> ContractResult<Response> {
+  let client_address = &info.sender;
   let pool = POOL.load(deps.storage)?;
   let config = CONFIG.load(deps.storage)?;
+  let mut client = load_client(deps.storage, &info.sender)?;
+  let mut resp = Response::new().add_attributes(vec![attr("action", "process")]);
 
   validate_address(deps.api, &initiator)?;
-
-  if is_rate_limited(
-    deps.storage,
-    &env.block,
-    &config.account_rate_limit,
-    &initiator,
-    None,
-  )? {
-    return Err(ContractError::ClientSuspended);
-  }
-
-  if is_rate_limited(
-    deps.storage,
-    &env.block,
-    &config.account_rate_limit,
-    &info.sender,
-    None,
-  )? {
-    return Err(ContractError::ClientSuspended);
-  }
-
-  let mut resp = Response::new().add_attributes(vec![attr("action", "process")]);
 
   // Abort if nothings being sent or received
   if maybe_incoming.is_none() && maybe_outgoing.is_none() {
@@ -85,48 +73,92 @@ pub fn process(
     }
   }
 
+  let mut is_rate_limit_triggered = false;
+
+  // Apply rate limiting at the client contract level
+  if let Some(event) = throttle(
+    deps.storage,
+    &env.block,
+    &pool,
+    &incoming,
+    &maybe_outgoing,
+    &client.config.rate_limit,
+    &client_address,
+  )? {
+    match event {
+      RateLimitEvent::Throttled => return Err(ContractError::ClientSuspended),
+      RateLimitEvent::Triggered => {
+        is_rate_limit_triggered = true;
+        client.is_suspended = true;
+        CLIENTS.save(deps.storage, client_address.clone(), &client)?;
+        EVENTS.push_front(
+          deps.storage,
+          &HouseEvent::ClientRateLimitTriggered {
+            client: client_address.clone(),
+            initiator: initiator.clone(),
+            block: env.block.clone(),
+          },
+        )?;
+      },
+    }
+  }
+
+  // Apply rate limiting at the initiator account level
+  if let Some(event) = throttle(
+    deps.storage,
+    &env.block,
+    &pool,
+    &incoming,
+    &maybe_outgoing,
+    &config.account_rate_limit,
+    &initiator,
+  )? {
+    match event {
+      RateLimitEvent::Throttled => return Err(ContractError::AccountSuspended),
+      RateLimitEvent::Triggered => {
+        is_rate_limit_triggered = true;
+        EVENTS.push_front(
+          deps.storage,
+          &HouseEvent::AccountRateLimitTriggered {
+            client: client_address.clone(),
+            initiator: initiator.clone(),
+            block: env.block.clone(),
+          },
+        )?;
+      },
+    }
+  }
+
+  // Ensure that the events buffer is capped at max size
+  while EVENTS.len(deps.storage)? > MAX_EVENT_QUEUE_SIZE {
+    EVENTS.pop_back(deps.storage)?;
+  }
+
+  // Send full refund to initiator if any rate limit triggered.
+  if is_rate_limit_triggered {
+    if !incoming.amount.is_zero() {
+      resp = resp.add_submessage(build_send_submsg(&initiator, incoming.amount, &pool.token)?);
+    }
+    return Ok(resp);
+  }
+
   // Take earnings and/or send payment
   if let Some(outgoing) = maybe_outgoing {
     outgoing.validate(deps.api)?;
 
-    let mut is_rate_limit_triggered = false;
-
     if outgoing.amount != incoming.amount {
-      // If the outgoing amount is greater than incoming, simply pay out the
-      // difference unless we encounter a liquidity usage rate-limit.
       resp = if outgoing.amount > incoming.amount {
+        // Pay out of house to the outgoing account.
         let payment = outgoing.amount - incoming.amount;
-        // Pay outgoing address. If make_payment returns None, it means that
-        // either a client or account-level rate-limit was triggered.
-        if let Some(resp) = make_payment(
-          deps,
-          env,
-          info,
-          payment,
-          &initiator,
-          &outgoing.address,
-          &config,
-          &resp,
-        )? {
-          // return response with payment submsg
-          resp.add_attribute("rate_limit", "false")
-        } else {
-          // Rate limit triggered, so we now "refund" initiator if necessary.
-          is_rate_limit_triggered = true;
-          resp = resp.add_attribute("rate_limit", "true");
-          if !incoming.amount.is_zero() {
-            resp = resp.add_submessage(build_send_submsg(&initiator, incoming.amount, &pool.token)?)
-          }
-          resp
-        }
+        make_payment(deps, info, payment, &resp)?
       } else {
-        // Add submsg to take incoming amount as house revenue
+        // Take payment from incoming account.
         let revenue = incoming.amount - outgoing.amount;
         take_revenue(deps, env, info, revenue, &config, &resp)?
       };
     }
     // Add submsg to response to send outgoing tokens
-    if !(outgoing.amount.is_zero() || is_rate_limit_triggered) {
+    if !outgoing.amount.is_zero() {
       resp = resp.add_submessage(build_send_submsg(
         &outgoing.address,
         outgoing.amount,
@@ -134,166 +166,124 @@ pub fn process(
       )?);
     }
   } else if !incoming.amount.is_zero() {
-    // There's only incoming, nothing outgoing, so the house takes revenue.
+    // There's only incoming, no outgoing, so the house takes revenue.
     take_revenue(deps, env, info, incoming.amount, &config, &resp)?;
   }
 
   Ok(resp)
 }
 
-pub fn make_payment(
+fn throttle(
+  storage: &mut dyn Storage,
+  block: &BlockInfo,
+  pool: &Pool,
+  incoming: &AccountTokenAmount,
+  maybe_outgoing: &Option<AccountTokenAmount>,
+  config: &RateLimitConfig,
+  address: &Addr,
+) -> ContractResult<Option<RateLimitEvent>> {
+  let mut maybe_event = None;
+  let time = block.time;
+  let height = block.height;
+
+  USAGE.update(
+    storage,
+    address.clone(),
+    |maybe_record| -> ContractResult<_> {
+      // Get or create a LiquidityUsage for the given address.
+      let mut record = maybe_record.unwrap_or_else(|| Usage {
+        start_liquidity: pool.liquidity,
+        start_time: time,
+        spent: Uint128::zero(),
+        added: Uint128::zero(),
+        prev_height: Uint64::zero(),
+      });
+
+      // Get time between last LiquidityUsage reset and the current block.
+      let time_delta = time.seconds() - record.start_time.seconds();
+
+      if time_delta > config.interval_seconds.u64() {
+        // Reset the LiquidityUsage record if this tx comes after the required
+        // time interval since the last time the existing record was reset.
+        record.start_liquidity = pool.liquidity;
+        record.start_time = time;
+        record.spent = Uint128::zero();
+        record.added = Uint128::zero();
+      }
+
+      // Compute upper limit for total_payout. If total_payout reaches the threshold
+      // then the rate limit comes into effect.
+      let spending_threshold =
+        mul_pct(record.start_liquidity, Uint128::from(config.max_pct_change));
+
+      // Determine if this tx is on a block subsequent to the existing block
+      // height stored in the current LiquidityUsage record.
+      let is_same_block = record.prev_height.u64() == height;
+
+      // Do checks BEFORE incrementing usage to check if ALREADY rate limited
+      if (record.spent > record.added && (record.spent - record.added) >= spending_threshold)
+        || is_same_block
+      {
+        maybe_event = Some(RateLimitEvent::Throttled);
+      }
+
+      record.prev_height = height.into();
+      record.added += incoming.amount;
+
+      if let Some(outgoing) = maybe_outgoing {
+        record.spent += outgoing.amount;
+      }
+
+      // Signal that rate limit is triggered but do not error out so that the
+      // caller can take further action, like issuing a refund, if required.
+      if maybe_event.is_none()
+        && record.spent > record.added
+        && (record.spent - record.added) >= spending_threshold
+      {
+        maybe_event = Some(RateLimitEvent::Triggered);
+      }
+      Ok(record)
+    },
+  )?;
+  Ok(maybe_event)
+}
+
+fn make_payment(
   deps: DepsMut,
-  env: Env,
   info: MessageInfo,
   payment: Uint128,
-  initiator: &Addr,
-  recipient: &Addr,
-  config: &Config,
   base_resp: &Response,
-) -> ContractResult<Option<Response>> {
+) -> ContractResult<Response> {
   ensure_min_amount(payment, Uint128::one())?;
 
-  let resp = base_resp.clone();
   let mut pool = POOL.load(deps.storage)?;
   let mut client = authorize_and_update_client(deps.storage, &info.sender, None)?;
 
-  // Suspend client if payment exceeds its liquidity usage limit. Rate-limiting
-  // is applied both at client contract and individual account levels.
-  let is_client_rate_limit_triggered = apply_rate_limit(
+  upsert_ledger_entry(
     deps.storage,
-    &env.block,
     &pool,
+    Uint128::zero(),
+    Uint128::zero(),
     payment,
-    info.sender.clone(),
-    client.config.rate_limit.interval_seconds.into(),
-    client.config.rate_limit.max_pct_change,
   )?;
 
-  let is_account_rate_limit_triggered = apply_rate_limit(
-    deps.storage,
-    &env.block,
-    &pool,
-    payment,
-    recipient.clone(),
-    config.account_rate_limit.interval_seconds.into(),
-    config.account_rate_limit.max_pct_change,
-  )?;
+  // Increment client's total expenditure, subtracting from pool's liquidity.
+  client.expense += payment;
+  pool.liquidity -= payment;
 
-  if is_client_rate_limit_triggered {
-    EVENTS.push_front(
-      deps.storage,
-      &HouseEvent::ClientRateLimitTriggered {
-        client: info.sender.clone(),
-        initiator: initiator.clone(),
-        block: env.block.clone(),
-      },
-    )?;
-  }
-
-  if is_account_rate_limit_triggered {
-    EVENTS.push_front(
-      deps.storage,
-      &HouseEvent::AccountRateLimitTriggered {
-        client: info.sender.clone(),
-        initiator: initiator.clone(),
-        block: env.block.clone(),
-      },
-    )?;
-  }
-
-  if EVENTS.len(deps.storage)? > 100 {
-    EVENTS.pop_back(deps.storage)?;
-  }
-
-  // Apply rate limiting.
-  let is_rate_limit_triggered = is_client_rate_limit_triggered || is_account_rate_limit_triggered;
-  let maybe_resp = if !is_rate_limit_triggered {
-    upsert_ledger_entry(
-      deps.storage,
-      &pool,
-      Uint128::zero(),
-      Uint128::zero(),
-      payment,
-    )?;
-    // Increment client's total expenditure, subtracting from pool's liquidity.
-    client.expense += payment;
-    pool.liquidity -= payment;
-    POOL.save(deps.storage, &pool)?;
-    Some(resp.add_event(Event::new("pay").add_attribute("amount", payment.to_string())))
-  } else {
-    // Suspend the client if rate limiting was triggered.
-    if is_client_rate_limit_triggered {
-      client.is_suspended = true;
-    }
-    None
-  };
-
+  POOL.save(deps.storage, &pool)?;
   CLIENTS.save(deps.storage, info.sender.clone(), &client)?;
 
   amortize(deps.storage)?;
 
-  Ok(maybe_resp)
+  Ok(
+    base_resp
+      .clone()
+      .add_event(Event::new("pay").add_attribute("amount", payment.to_string())),
+  )
 }
 
-fn apply_rate_limit(
-  storage: &mut dyn Storage,
-  block: &BlockInfo,
-  pool: &Pool,
-  payment: Uint128,
-  addr: Addr,
-  interval_secs: u64,
-  pct: Uint128,
-) -> ContractResult<bool> {
-  let mut rate_limit_triggered = false;
-  let time = block.time;
-  let height = block.height;
-
-  LIQUIDITY_USAGE.update(storage, addr.clone(), |maybe_record| -> ContractResult<_> {
-    // Get or create a LiquidityUsage for the given address.
-    let mut record = maybe_record.unwrap_or_else(|| LiquidityUsage {
-      initial_liquidity: pool.liquidity,
-      total_amount: Uint128::zero(),
-      height: Uint64::zero(),
-      time,
-    });
-    // Compute upper limit for total_payout. If total_payout reaches the threshold
-    // then the rate limit comes into effect.
-    let payout_threshold = mul_pct(record.initial_liquidity, Uint128::from(pct));
-
-    // Get time between last LiquidityUsage reset and the current block.
-    let time_delta = time.seconds() - record.time.seconds();
-
-    // Determine if this tx is on a block subsequent to the existing block
-    // height stored in the current LiquidityUsage record.
-    let is_new_block = record.height.u64() < height;
-
-    if time_delta >= interval_secs {
-      // Reset the LiquidityUsage record if this tx comes after the required
-      // time interval since the last time the existing record was reset.
-      record.initial_liquidity = pool.liquidity;
-      record.total_amount = Uint128::zero();
-      record.time = time;
-    }
-
-    record.total_amount += payment;
-    record.height = height.into();
-
-    // Signal that rate limit is triggered but do not error out
-    // so that the caller can take further action, like issuing
-    // a refund, if required.
-    if record.total_amount >= payout_threshold || !is_new_block {
-      rate_limit_triggered = true;
-    }
-
-    Ok(record)
-  })?;
-  if rate_limit_triggered {
-    return Ok(true);
-  }
-  Ok(false)
-}
-
-pub fn take_revenue(
+fn take_revenue(
   deps: DepsMut,
   _env: Env,
   info: MessageInfo,

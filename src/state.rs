@@ -1,7 +1,7 @@
 use crate::error::{ContractError, ContractResult};
 use crate::models::{
   BankAccount, Client, Config, HouseEvent, LedgerEntry, LedgerUpdates, LiquidityUsage, Pool,
-  RateLimitConfig, StakeAccount, TaxRecipient,
+  RateLimitConfig, StakeAccount, TaxRecipient, Usage,
 };
 use crate::msg::InstantiateMsg;
 use crate::utils::{decrement, mul_pct};
@@ -10,6 +10,8 @@ use cw_acl::client::Acl;
 use cw_lib::models::Owner;
 use cw_lib::utils::funds::has_funds;
 use cw_storage_plus::{Deque, Item, Map};
+
+pub const MAX_EVENT_QUEUE_SIZE: u32 = 100;
 
 pub const OWNER: Item<Owner> = Item::new("owner");
 pub const POOL: Item<Pool> = Item::new("pool");
@@ -25,6 +27,7 @@ pub const N_DELEGATION_MUTATIONS: Item<Uint128> = Item::new("n_delegation_mutati
 pub const N_CLIENTS: Item<u32> = Item::new("n_clients");
 pub const TAX_RECIPIENTS: Map<Addr, TaxRecipient> = Map::new("tax_recipients");
 pub const LIQUIDITY_USAGE: Map<Addr, LiquidityUsage> = Map::new("liquidity_usage");
+pub const USAGE: Map<Addr, Usage> = Map::new("usage");
 pub const MEMOIZATION_QUEUE: Deque<Addr> = Deque::new("memoization_queue");
 pub const EVENTS: Deque<HouseEvent> = Deque::new("events");
 
@@ -92,6 +95,18 @@ pub fn load_bank_account(
     Ok(account)
   } else {
     Err(ContractError::BankAccountNotFound)
+  }
+}
+
+/// Load a Client or return error.
+pub fn load_client(
+  storage: &dyn Storage,
+  addr: &Addr,
+) -> ContractResult<Client> {
+  if let Some(client) = CLIENTS.may_load(storage, addr.clone())? {
+    Ok(client)
+  } else {
+    Err(ContractError::ClientNotFound)
   }
 }
 
