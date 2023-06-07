@@ -1,8 +1,8 @@
-use cosmwasm_std::{to_binary, Addr, Coin, StdResult, WasmMsg};
+use cosmwasm_std::{to_binary, Addr, Coin, Empty, QuerierWrapper, StdResult, Uint128, WasmMsg};
 use cw_lib::utils::funds::build_cw20_increase_allowance_msg;
 
 pub use crate::models::AccountTokenAmount;
-use crate::msg::ExecuteMsg;
+use crate::msg::{CanSpendResponse, ExecuteMsg, QueryMsg};
 
 pub struct House {
   pub address: Addr,
@@ -15,8 +15,27 @@ impl House {
     }
   }
 
+  pub fn can_spend(
+    &self,
+    querier: &QuerierWrapper<Empty>,
+    client: &Addr,
+    initiator: &Addr,
+    amount: Option<Uint128>,
+  ) -> StdResult<bool> {
+    let resp = querier.query_wasm_smart::<CanSpendResponse>(
+      self.address.clone(),
+      &QueryMsg::CanSpend {
+        client: client.clone(),
+        initiator: initiator.clone(),
+        amount,
+      },
+    )?;
+    Ok(resp.can_spend)
+  }
+
   pub fn process(
     &self,
+    initiator: Addr,
     maybe_incoming: Option<AccountTokenAmount>,
     maybe_outgoing: Option<AccountTokenAmount>,
     maybe_funds: Option<Vec<Coin>>,
@@ -42,6 +61,7 @@ impl House {
       contract_addr: self.address.clone().into(),
       funds: maybe_funds.unwrap_or(vec![]),
       msg: to_binary(&ExecuteMsg::Process {
+        initiator,
         incoming: maybe_incoming,
         outgoing: maybe_outgoing,
       })?,

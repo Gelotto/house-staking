@@ -15,8 +15,11 @@ pub enum ContractError {
   #[error("ValidationError")]
   ValidationError {},
 
-  #[error("IsSuspended")]
-  IsSuspended,
+  #[error("AccountSuspended")]
+  AccountSuspended,
+
+  #[error("ClientSuspended")]
+  ClientSuspended,
 
   #[error("ClientNotFound")]
   ClientNotFound,

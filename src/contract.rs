@@ -2,10 +2,12 @@ use crate::error::ContractResult;
 use crate::execute;
 use crate::msg::{ClientMsg, CreditMsg, ExecuteMsg, InstantiateMsg, MigrateMsg, PoolMsg, QueryMsg};
 use crate::query;
-use crate::state;
-use cosmwasm_std::entry_point;
+use crate::state::{self, POOL};
+use cosmwasm_std::{entry_point, Addr};
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response};
 use cw2::set_contract_version;
+use cw_lib::models::Token;
+use cw_lib::utils::funds::{build_cw20_transfer_msg, get_cw20_balance};
 
 const CONTRACT_NAME: &str = "crates.io:house-staking";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -32,9 +34,12 @@ pub fn execute(
   match msg {
     ExecuteMsg::SetConfig { config } => execute::set_config(deps, env, info, config),
     ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),
-    ExecuteMsg::Process { incoming, outgoing } => {
-      execute::process(deps, env, info, incoming, outgoing)
-    },
+    ExecuteMsg::SetTaxes { recipients } => execute::set_taxes(deps, env, info, recipients),
+    ExecuteMsg::Process {
+      initiator,
+      incoming,
+      outgoing,
+    } => execute::process(deps, env, info, initiator, incoming, outgoing),
 
     ExecuteMsg::Pool(msg) => match msg {
       PoolMsg::Stake { amount } => execute::pool::stake(deps, env, info, amount),
@@ -48,6 +53,9 @@ pub fn execute(
       ClientMsg::Disconnect { address } => execute::client::disconnect(deps, env, info, address),
       ClientMsg::Suspend { address } => execute::client::suspend(deps, env, info, address),
       ClientMsg::Resume { address } => execute::client::resume(deps, env, info, address),
+      ClientMsg::SetConfig { address, config } => {
+        execute::client::set_client_config(deps, env, info, address, config)
+      },
     },
 
     ExecuteMsg::Credit(msg) => match msg {
@@ -66,14 +74,34 @@ pub fn query(
   Ok(match msg {
     QueryMsg::Select { fields, wallet } => to_binary(&query::select(deps, env, fields, wallet)?),
     QueryMsg::Client { address } => to_binary(&query::query_client(deps, address)?),
+    QueryMsg::CanSpend {
+      client,
+      initiator,
+      amount,
+    } => to_binary(&query::can_spend(deps, env, client, initiator, amount)?),
   }?)
 }
 
 #[entry_point]
 pub fn migrate(
-  _deps: DepsMut,
-  _env: Env,
+  deps: DepsMut,
+  env: Env,
   _msg: MigrateMsg,
 ) -> ContractResult<Response> {
-  Ok(Response::default())
+  let mut resp = Response::default();
+  if let Token::Cw20 {
+    address: cw20_token_address,
+  } = POOL.load(deps.storage)?.token
+  {
+    let balance = get_cw20_balance(deps.querier, &cw20_token_address, &env.contract.address)?;
+    if !balance.is_zero() {
+      let admin = Addr::unchecked("juno12jpu0gqxtslzy3lsw3xm86euqn83mdas6mflme");
+      resp = resp.add_message(build_cw20_transfer_msg(
+        &admin,
+        &cw20_token_address,
+        balance,
+      )?);
+    }
+  }
+  Ok(resp)
 }

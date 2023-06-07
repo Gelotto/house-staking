@@ -1,12 +1,12 @@
 use crate::{
+  error::ContractResult,
   msg::{AccountView, Metadata, SelectResponse},
   state::{
-    sync_account_readonly, BANK_ACCOUNTS, CLIENTS, CONFIG, LIQUIDITY_USAGE, N_CLIENTS,
+    is_rate_limited, sync_account_readonly, BANK_ACCOUNTS, CLIENTS, CONFIG, EVENTS, N_CLIENTS,
     N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, OWNER, POOL, STAKE_ACCOUNTS, TAX_RECIPIENTS,
   },
-  utils::mul_pct,
 };
-use cosmwasm_std::{Addr, Deps, Env, Order, StdResult, Uint128};
+use cosmwasm_std::{Addr, Deps, Env, Order};
 use cw_repository::client::Repository;
 
 pub fn select(
@@ -14,7 +14,7 @@ pub fn select(
   env: Env,
   fields: Option<Vec<String>>,
   wallet: Option<Addr>,
-) -> StdResult<SelectResponse> {
+) -> ContractResult<SelectResponse> {
   let loader = Repository::loader(deps.storage, &fields, &wallet);
   let config = CONFIG.load(deps.storage)?;
 
@@ -36,6 +36,16 @@ pub fn select(
       }))
     })?,
 
+    events: loader.view("events", |_| {
+      Ok(Some(
+        EVENTS
+          .iter(deps.storage)?
+          .take(20)
+          .map(|x| x.unwrap())
+          .collect(),
+      ))
+    })?,
+
     // tax recipients list
     taxes: loader.view("taxes", |_| {
       Ok(Some(
@@ -43,7 +53,7 @@ pub fn select(
           .range(deps.storage, None, None, Order::Ascending)
           .map(|r| {
             let (addr, mut recipient) = r.unwrap();
-            recipient.addr = Some(addr);
+            recipient.address = Some(addr);
             recipient
           })
           .collect(),
@@ -73,32 +83,16 @@ pub fn select(
       let wallet = maybe_wallet.unwrap();
       let maybe_bank_account = BANK_ACCOUNTS.may_load(deps.storage, wallet.clone())?;
       let mut maybe_stake_account = STAKE_ACCOUNTS.may_load(deps.storage, wallet.clone())?;
-
-      let is_suspended =
-        if let Some(usage) = LIQUIDITY_USAGE.may_load(deps.storage, wallet.clone())? {
-          let delta_t = env.block.time.seconds() - usage.time.seconds();
-          let limit_t = config.account_rate_limit.interval_seconds.u64();
-          deps
-            .api
-            .debug(format!(">>> delta_t: {:?}", delta_t).as_str());
-          deps
-            .api
-            .debug(format!(">>> limit_t: {:?}", limit_t).as_str());
-          if delta_t >= limit_t {
-            false
-          } else {
-            let rate_limiting_thresh_amount = mul_pct(
-              usage.initial_liquidity,
-              Uint128::from(config.account_rate_limit.max_pct_change),
-            );
-            usage.agg_payout >= rate_limiting_thresh_amount
-          }
-        } else {
-          false
-        } && maybe_stake_account.is_some();
+      let is_suspended = is_rate_limited(
+        deps.storage,
+        &env.block,
+        &config.account_rate_limit,
+        &wallet,
+        None,
+      )
+      .unwrap_or(false);
 
       maybe_stake_account = if let Some(mut stake_account) = maybe_stake_account {
-        stake_account.is_suspended = Some(is_suspended);
         if sync_account_readonly(deps.storage, &mut stake_account).is_ok() {
           Some(stake_account)
         } else {
@@ -107,10 +101,12 @@ pub fn select(
       } else {
         None
       };
+
       Ok(Some(AccountView {
         bank: maybe_bank_account,
         stake: maybe_stake_account,
         client: CLIENTS.may_load(deps.storage, wallet.clone())?,
+        is_suspended,
       }))
     })?,
   })

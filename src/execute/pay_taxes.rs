@@ -1,6 +1,6 @@
 use crate::{
   error::ContractResult,
-  state::{POOL, TAX_RECIPIENTS},
+  state::{ensure_sender_is_allowed, POOL, TAX_RECIPIENTS},
   utils::mul_pct,
 };
 use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Order, Response, SubMsg, Uint128};
@@ -9,9 +9,12 @@ use cw_lib::utils::funds::build_send_submsg;
 pub fn pay_taxes(
   deps: DepsMut,
   _env: Env,
-  _info: MessageInfo,
+  info: MessageInfo,
 ) -> ContractResult<Response> {
   let action = "pay_taxes";
+
+  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
+
   let mut transfer_submsgs: Vec<SubMsg> = Vec::with_capacity(1);
   let mut pool = POOL.load(deps.storage)?;
 

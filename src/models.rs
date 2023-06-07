@@ -1,10 +1,13 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Timestamp, Uint128, Uint64};
+use cosmwasm_std::{Addr, Api, BlockInfo, Timestamp, Uint128, Uint64};
 use cw_lib::models::Token;
+
+use crate::{error::ContractError, state::validate_address};
 
 #[cw_serde]
 pub struct Config {
   pub restake_rate: Uint128,
+  pub tax_rate: Uint128,
   pub unbonding_seconds: Uint64,
   pub account_rate_limit: RateLimitConfig,
   pub default_client_rate_limit: RateLimitConfig,
@@ -14,6 +17,26 @@ pub struct Config {
 pub struct RateLimitConfig {
   pub interval_seconds: Uint64,
   pub max_pct_change: Uint128,
+}
+
+#[cw_serde]
+pub enum Actor {
+  Account,
+  Client(Addr),
+}
+
+#[cw_serde]
+pub enum HouseEvent {
+  ClientRateLimitTriggered {
+    block: BlockInfo,
+    initiator: Addr,
+    client: Addr,
+  },
+  AccountRateLimitTriggered {
+    block: BlockInfo,
+    client: Addr,
+    initiator: Addr,
+  },
 }
 
 #[cw_serde]
@@ -28,12 +51,12 @@ pub struct Pool {
 #[cw_serde]
 pub struct StakeAccount {
   pub address: Option<Addr>,
+  pub is_suspended: Option<bool>,
   pub delegation: Uint128,
   pub dividends: Uint128,
   pub liquidity: Uint128,
   pub unbonding: Option<UnbondingInfo>,
   pub seq_no: Uint128,
-  pub is_suspended: Option<bool>,
 }
 
 #[cw_serde]
@@ -60,11 +83,11 @@ pub struct ClientConfig {
 #[cw_serde]
 pub struct Client {
   pub address: Option<Addr>,
-  pub is_suspended: bool,
-  pub connected_at: Timestamp,
-  pub revenue: Uint128,
-  pub expenditure: Uint128,
   pub config: ClientConfig,
+  pub connected_at: Timestamp,
+  pub is_suspended: bool,
+  pub revenue: Uint128,
+  pub expense: Uint128,
 }
 
 #[cw_serde]
@@ -85,8 +108,8 @@ pub struct LedgerUpdates {
 
 #[cw_serde]
 pub struct TaxRecipient {
+  pub address: Option<Addr>,
   pub pct: Uint128,
-  pub addr: Option<Addr>,
   pub name: Option<String>,
   pub description: Option<String>,
   pub url: Option<String>,
@@ -95,8 +118,9 @@ pub struct TaxRecipient {
 #[cw_serde]
 pub struct LiquidityUsage {
   pub initial_liquidity: Uint128,
-  pub agg_payout: Uint128,
+  pub total_amount: Uint128,
   pub time: Timestamp,
+  pub height: Uint64,
 }
 
 #[cw_serde]
@@ -114,6 +138,14 @@ impl AccountTokenAmount {
       address: address.clone(),
       amount,
     }
+  }
+
+  pub fn validate(
+    &self,
+    api: &dyn Api,
+  ) -> Result<(), ContractError> {
+    validate_address(api, &self.address)?;
+    Ok(())
   }
 }
 
@@ -147,7 +179,7 @@ impl Client {
     Self {
       address,
       connected_at,
-      expenditure: Uint128::zero(),
+      expense: Uint128::zero(),
       revenue: Uint128::zero(),
       is_suspended: false,
       config: ClientConfig {

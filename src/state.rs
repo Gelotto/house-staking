@@ -1,11 +1,12 @@
 use crate::error::{ContractError, ContractResult};
 use crate::models::{
-  BankAccount, Client, Config, LedgerEntry, LedgerUpdates, LiquidityUsage, Pool, StakeAccount,
-  TaxRecipient,
+  BankAccount, Client, Config, HouseEvent, LedgerEntry, LedgerUpdates, LiquidityUsage, Pool,
+  RateLimitConfig, StakeAccount, TaxRecipient,
 };
 use crate::msg::InstantiateMsg;
-use crate::utils::decrement;
-use cosmwasm_std::{Addr, Coin, DepsMut, Env, MessageInfo, Storage, Uint128};
+use crate::utils::{decrement, mul_pct};
+use cosmwasm_std::{Addr, Api, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Storage, Uint128};
+use cw_acl::client::Acl;
 use cw_lib::models::Owner;
 use cw_lib::utils::funds::has_funds;
 use cw_storage_plus::{Deque, Item, Map};
@@ -23,9 +24,9 @@ pub const N_STAKE_ACCOUNTS: Item<u32> = Item::new("n_stake_accounts");
 pub const N_DELEGATION_MUTATIONS: Item<Uint128> = Item::new("n_delegation_mutations");
 pub const N_CLIENTS: Item<u32> = Item::new("n_clients");
 pub const TAX_RECIPIENTS: Map<Addr, TaxRecipient> = Map::new("tax_recipients");
-pub const TAX_RATE: Item<u16> = Item::new("tax_rate");
 pub const LIQUIDITY_USAGE: Map<Addr, LiquidityUsage> = Map::new("liquidity_usage");
 pub const MEMOIZATION_QUEUE: Deque<Addr> = Deque::new("memoization_queue");
+pub const EVENTS: Deque<HouseEvent> = Deque::new("events");
 
 // pub const : Deque<Addr> = Deque::new("memoization_queue");
 
@@ -36,6 +37,7 @@ pub fn initialize(
   info: &MessageInfo,
   msg: &InstantiateMsg,
 ) -> ContractResult<()> {
+  // TODO: validate
   OWNER.save(
     deps.storage,
     &msg
@@ -45,12 +47,27 @@ pub fn initialize(
   )?;
   POOL.save(deps.storage, &Pool::new(&msg.token))?;
   CONFIG.save(deps.storage, &msg.config)?;
-  TAX_RATE.save(deps.storage, &0)?;
   LEDGER_ENTRY_SEQ_NO.save(deps.storage, &Uint128::zero())?;
   N_STAKE_ACCOUNTS.save(deps.storage, &0)?;
   N_CLIENTS.save(deps.storage, &0)?;
   N_LEDGER_ENTRIES.save(deps.storage, &0)?;
   N_DELEGATION_MUTATIONS.save(deps.storage, &Uint128::zero())?;
+  if let Some(recipients) = &msg.taxes {
+    insert_tax_recipients(deps.storage, recipients)?;
+  }
+  Ok(())
+}
+
+pub fn insert_tax_recipients(
+  storage: &mut dyn Storage,
+  recipients: &Vec<TaxRecipient>,
+) -> ContractResult<()> {
+  for recipient in recipients.clone().iter_mut() {
+    if let Some(addr) = recipient.address.clone() {
+      recipient.address = None;
+      TAX_RECIPIENTS.save(storage, addr.clone(), &recipient)?;
+    }
+  }
   Ok(())
 }
 
@@ -177,7 +194,7 @@ pub fn authorize_and_update_client(
     CLIENTS.update(storage, addr.clone(), |maybe_client| -> ContractResult<_> {
       if let Some(mut client) = maybe_client {
         if client.is_suspended {
-          return Err(ContractError::IsSuspended);
+          return Err(ContractError::ClientSuspended);
         } else {
           if let Some(action) = maybe_action {
             action(&mut client);
@@ -189,6 +206,41 @@ pub fn authorize_and_update_client(
       }
     })?,
   )
+}
+
+pub fn is_rate_limited(
+  storage: &dyn Storage,
+  block: &BlockInfo,
+  config: &RateLimitConfig,
+  address: &Addr,
+  additional_amount: Option<Uint128>,
+) -> ContractResult<bool> {
+  Ok(
+    if let Some(usage) = LIQUIDITY_USAGE.may_load(storage, address.clone())? {
+      let dt = block.time.seconds() - usage.time.seconds();
+      let interval = config.interval_seconds.u64();
+      if block.height == usage.height.u64() {
+        true
+      } else if dt >= interval {
+        false
+      } else {
+        let max_pct_change = Uint128::from(config.max_pct_change);
+        let thresh = mul_pct(usage.initial_liquidity, max_pct_change);
+        usage.total_amount + additional_amount.unwrap_or_default() >= thresh
+      }
+    } else {
+      false
+    },
+  )
+}
+
+pub fn validate_address(
+  api: &dyn Api,
+  addr: &Addr,
+) -> Result<Addr, ContractError> {
+  api
+    .addr_validate(addr.as_str())
+    .map_err(|_| ContractError::InvalidAddress)
 }
 
 /// Return error if amount is less than the given min amount.
@@ -217,4 +269,24 @@ pub fn ensure_has_funds(
     return Err(ContractError::InsufficientFunds);
   }
   Ok(())
+}
+
+/// Helper function that returns true if given wallet (principal) is authorized
+/// by ACL to the given action.
+pub fn ensure_sender_is_allowed(
+  deps: &Deps,
+  principal: &Addr,
+  action: &str,
+) -> Result<(), ContractError> {
+  if !match OWNER.load(deps.storage)? {
+    Owner::Address(addr) => *principal == addr,
+    Owner::Acl(acl_addr) => {
+      let acl = Acl::new(&acl_addr);
+      acl.is_allowed(&deps.querier, principal, action)?
+    },
+  } {
+    Err(ContractError::NotAuthorized {})
+  } else {
+    Ok(())
+  }
 }

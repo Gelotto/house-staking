@@ -3,8 +3,8 @@ use cosmwasm_std::{Addr, Uint128};
 use cw_lib::models::{Owner, Token};
 
 use crate::models::{
-  AccountTokenAmount, BankAccount, Client, Config, Pool, RateLimitConfig, StakeAccount,
-  TaxRecipient,
+  AccountTokenAmount, BankAccount, Client, ClientConfig, Config, HouseEvent, Pool, RateLimitConfig,
+  StakeAccount, TaxRecipient,
 };
 
 #[cw_serde]
@@ -31,6 +31,7 @@ pub enum ClientMsg {
   Disconnect { address: Addr },
   Suspend { address: Addr },
   Resume { address: Addr },
+  SetConfig { address: Addr, config: ClientConfig },
 }
 
 #[cw_serde]
@@ -53,11 +54,15 @@ pub enum ExecuteMsg {
   Pool(PoolMsg),
   Credit(CreditMsg),
   Process {
+    initiator: Addr,
     incoming: Option<AccountTokenAmount>,
     outgoing: Option<AccountTokenAmount>,
   },
   SetConfig {
     config: Config,
+  },
+  SetTaxes {
+    recipients: Vec<TaxRecipient>,
   },
   PayTaxes,
 }
@@ -66,6 +71,11 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
   Client {
     address: Addr,
+  },
+  CanSpend {
+    client: Addr,
+    initiator: Addr,
+    amount: Option<Uint128>,
   },
   Select {
     fields: Option<Vec<String>>,
@@ -88,6 +98,7 @@ pub struct AccountView {
   pub stake: Option<StakeAccount>,
   pub bank: Option<BankAccount>,
   pub client: Option<Client>,
+  pub is_suspended: bool,
 }
 
 #[cw_serde]
@@ -99,6 +110,12 @@ pub struct SelectResponse {
   pub account: Option<AccountView>,
   pub taxes: Option<Vec<TaxRecipient>>,
   pub metadata: Option<Metadata>,
+  pub events: Option<Vec<HouseEvent>>,
+}
+
+#[cw_serde]
+pub struct CanSpendResponse {
+  pub can_spend: bool,
 }
 
 #[cw_serde]
