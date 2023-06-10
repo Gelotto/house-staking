@@ -186,12 +186,16 @@ pub fn amortize(storage: &mut dyn Storage) -> Result<(), ContractError> {
   for _ in 0..2 {
     if let Some(addr) = MEMOIZATION_QUEUE.pop_front(storage)? {
       if let Some(mut account) = STAKE_ACCOUNTS.may_load(storage, addr.clone())? {
-        if account.seq_no < curr_seq_no.into() {
-          sync_account(storage, &mut account)?;
+        if account.unbonding.is_none() {
+          if account.seq_no < curr_seq_no.into() {
+            sync_account(storage, &mut account)?;
+            STAKE_ACCOUNTS.save(storage, addr.clone(), &account)?;
+            MEMOIZATION_QUEUE.push_back(storage, &addr)?;
+            break;
+          } else {
+            MEMOIZATION_QUEUE.push_back(storage, &addr)?;
+          }
         }
-        STAKE_ACCOUNTS.save(storage, addr.clone(), &account)?;
-        MEMOIZATION_QUEUE.push_back(storage, &addr)?;
-        break;
       }
     }
   }

@@ -17,9 +17,9 @@ pub fn unstake(
 
   sync_account(deps.storage, &mut account)?;
 
-  let amount = account.liquidity;
+  let total_amount = account.liquidity + account.dividends;
 
-  if !amount.is_zero() {
+  if !total_amount.is_zero() {
     // abort if user is trying to unstake too soon after most recent prev attempt
     if let Some(mut info) = account.unbonding.clone() {
       let config = CONFIG.load(deps.storage)?;
@@ -27,17 +27,20 @@ pub fn unstake(
       if time_since <= config.unbonding_seconds.u64() {
         return Err(ContractError::NotAuthorized {});
       }
-      info.amount += amount;
+      info.amount += total_amount;
       info.time = env.block.time;
     } else {
       account.unbonding = Some(UnbondingInfo {
-        amount,
+        amount: total_amount,
         time: env.block.time,
       });
     }
 
-    pool.liquidity -= amount;
+    pool.liquidity -= account.liquidity;
+    pool.dividends -= account.dividends;
+
     account.liquidity = Uint128::zero();
+    account.dividends = Uint128::zero();
 
     POOL.save(deps.storage, &pool)?;
   }
@@ -51,6 +54,6 @@ pub fn unstake(
 
   Ok(Response::new().add_attributes(vec![
     attr("action", action),
-    attr("amount", amount.to_string()),
+    attr("amount", total_amount.to_string()),
   ]))
 }
