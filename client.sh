@@ -94,12 +94,21 @@ resume-client() {
 
 query-select() {
   wallet=$1
-  query='{"select":{"fields":null,"wallet":"'$wallet'"}}'
+  query='{"select":{"fields":[],"wallet":"'$wallet'"}}'
   flags="--chain-id $CHAIN_ID --output json --node $NODE"
   echo junod query wasm contract-state smart $CONTRACT_ADDR "$query" $flags
   response=$(junod query wasm contract-state smart $CONTRACT_ADDR "$query" $flags)
   echo $response | ./bin/utils/base64-decode-attributes | jq
 }
+
+query-accounts() {
+  query='{"accounts":{"limit":100}}'
+  flags="--chain-id $CHAIN_ID --output json --node $NODE"
+  echo junod query wasm contract-state smart $CONTRACT_ADDR "$query" $flags
+  response=$(junod query wasm contract-state smart $CONTRACT_ADDR "$query" $flags)
+  echo $response | ./bin/utils/base64-decode-attributes | jq
+}
+
 
 set -e
 echo "executing $CMD for $CONTRACT_ADDR"
@@ -116,6 +125,9 @@ case $CMD in
     ;;
   query-select) 
     query-select $1
+    ;;
+  query-accounts) 
+    query-accounts
     ;;
   *)
     echo "unrecognized option: $CMD" >&2

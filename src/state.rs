@@ -114,12 +114,25 @@ pub fn load_client(
 /// state. The computed values are stored in the StakeAccount.
 pub fn sync_account(
   storage: &mut dyn Storage,
+  api: &dyn Api,
   account: &mut StakeAccount,
+  is_claiming: bool,
 ) -> ContractResult<()> {
-  let updates = sync_account_readonly(storage, account)?;
+  // Empty ledger implies every account is fulled synced.
+  if N_LEDGER_ENTRIES.load(storage)? == 0 {
+    return Ok(());
+  }
+
+  // update the account's computed liquidity and dividends, returning any info
+  // necessary to save changes to state below.
+  let updates = sync_account_readonly(storage, api, account, is_claiming)?;
+
+  // Save ledger entries that have been updated by sync readonly
   for (i_entry, entry) in updates.updated_entries.iter() {
     LEDGER.save(storage, *i_entry, entry)?;
   }
+
+  // Decrease ledger entry count and remove zombie ledger entries.
   if !updates.zombie_entry_indices.is_empty() {
     decrement(
       storage,
@@ -138,13 +151,23 @@ pub fn sync_account(
 /// procedure.
 pub fn sync_account_readonly(
   storage: &dyn Storage,
+  api: &dyn Api,
   account: &mut StakeAccount,
+  is_claiming: bool,
 ) -> ContractResult<LedgerUpdates> {
-  let current_seq_no = LEDGER_ENTRY_SEQ_NO.load(storage)?;
+  let mut current_seq_no = LEDGER_ENTRY_SEQ_NO.load(storage)?;
+
   let mut updates = LedgerUpdates {
     zombie_entry_indices: vec![],
     updated_entries: vec![],
   };
+
+  if !current_seq_no.is_zero() && !is_claiming {
+    current_seq_no -= Uint128::one();
+  }
+
+  api.debug(format!(">>> current_seq_no: {}", current_seq_no.u128()).as_str());
+  api.debug(format!(">>> account.seq_no: {}", account.seq_no.u128()).as_str());
 
   if current_seq_no > account.seq_no {
     for i_entry in account.seq_no.u128()..current_seq_no.u128() {
@@ -181,19 +204,20 @@ pub fn sync_account_readonly(
 /// amortizes the runtime of the claim and unstake functions, which would
 /// otherwise need to iterate through every single ledger entry created
 /// post-staking.
-pub fn amortize(storage: &mut dyn Storage) -> Result<(), ContractError> {
+pub fn amortize(
+  storage: &mut dyn Storage,
+  api: &dyn Api,
+) -> Result<(), ContractError> {
   let curr_seq_no = LEDGER_ENTRY_SEQ_NO.load(storage)?;
   for _ in 0..2 {
     if let Some(addr) = MEMOIZATION_QUEUE.pop_front(storage)? {
       if let Some(mut account) = STAKE_ACCOUNTS.may_load(storage, addr.clone())? {
         if account.unbonding.is_none() {
+          MEMOIZATION_QUEUE.push_back(storage, &addr)?;
           if account.seq_no < curr_seq_no.into() {
-            sync_account(storage, &mut account)?;
+            sync_account(storage, api, &mut account, false)?;
             STAKE_ACCOUNTS.save(storage, addr.clone(), &account)?;
-            MEMOIZATION_QUEUE.push_back(storage, &addr)?;
             break;
-          } else {
-            MEMOIZATION_QUEUE.push_back(storage, &addr)?;
           }
         }
       }

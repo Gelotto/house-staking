@@ -35,3 +35,6 @@ resume:
 
 select:
 	./client.sh query-select $(network) $(tag) $(sender)
+
+accounts:
+	./client.sh query-accounts $(network) $(tag)

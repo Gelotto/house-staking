@@ -27,7 +27,7 @@ pub fn stake(
 
   // user must first withdraw unbonded amount before staking again
   if account.unbonding.is_some() {
-    return Err(ContractError::NotAuthorized {});
+    return Err(ContractError::Unbonding);
   }
 
   // if this is a new account, increment the global stake account counter and
@@ -44,7 +44,7 @@ pub fn stake(
     Ok(pool)
   })?;
 
-  sync_account(deps.storage, &mut account)?;
+  sync_account(deps.storage, deps.api, &mut account, true)?;
 
   account.delegation += amount;
   account.liquidity += amount;

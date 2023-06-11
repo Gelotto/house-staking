@@ -133,6 +133,25 @@ pub struct Usage {
 }
 
 #[cw_serde]
+pub struct DiagnosticAmounts {
+  pub delegation: Uint128,
+  pub dividends: Uint128,
+  pub liquidity: Uint128,
+}
+
+#[cw_serde]
+pub struct DiagnosticTotals {
+  pub aggregate: DiagnosticAmounts,
+  pub component: DiagnosticAmounts,
+  pub delta: DiagnosticAmounts,
+}
+
+#[cw_serde]
+pub struct Diagnostics {
+  pub totals: DiagnosticTotals,
+}
+
+#[cw_serde]
 pub struct AccountTokenAmount {
   pub address: Addr,
   pub amount: Uint128,

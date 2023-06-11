@@ -54,7 +54,7 @@ pub fn deposit(
     },
   }
 
-  amortize(deps.storage)?;
+  amortize(deps.storage, deps.api)?;
 
   Ok(resp)
 }

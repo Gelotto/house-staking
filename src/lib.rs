@@ -10,6 +10,9 @@ pub mod execute;
 #[cfg(not(feature = "library"))]
 pub mod query;
 
+#[cfg(not(feature = "library"))]
+pub mod migrations;
+
 pub mod error;
 pub mod models;
 pub mod msg;

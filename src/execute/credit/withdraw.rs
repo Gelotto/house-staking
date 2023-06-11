@@ -30,7 +30,7 @@ pub fn withdraw(
     },
   )?;
 
-  amortize(deps.storage)?;
+  amortize(deps.storage, deps.api)?;
 
   Ok(Response::new().add_attributes(vec![attr("action", action)]))
 }

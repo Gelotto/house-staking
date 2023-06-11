@@ -3,8 +3,8 @@ use cosmwasm_std::{Addr, Uint128};
 use cw_lib::models::{Owner, Token};
 
 use crate::models::{
-  AccountTokenAmount, BankAccount, Client, ClientConfig, Config, HouseEvent, Pool, RateLimitConfig,
-  StakeAccount, TaxRecipient,
+  AccountTokenAmount, BankAccount, Client, ClientConfig, Config, HouseEvent, LedgerEntry, Pool,
+  RateLimitConfig, StakeAccount, TaxRecipient,
 };
 
 #[cw_serde]
@@ -72,6 +72,10 @@ pub enum QueryMsg {
   Client {
     address: Addr,
   },
+  Accounts {
+    cursor: Option<Addr>,
+    limit: Option<u8>,
+  },
   CanSpend {
     client: Addr,
     initiator: Addr,
@@ -82,15 +86,17 @@ pub enum QueryMsg {
     wallet: Option<Addr>,
   },
 }
-
 #[cw_serde]
-pub struct MigrateMsg {}
+pub enum MigrateMsg {
+  V0_0_2 {},
+}
 
 #[cw_serde]
 pub struct Metadata {
   pub n_accounts: u32,
   pub n_clients: u32,
   pub n_ledger_entries: u32,
+  pub ledger_entry_seq_no: Uint128,
 }
 
 #[cw_serde]
@@ -99,6 +105,12 @@ pub struct AccountView {
   pub bank: Option<BankAccount>,
   pub client: Option<Client>,
   pub is_suspended: bool,
+}
+
+#[cw_serde]
+pub struct LedgerEntryView {
+  pub seq_no: Uint128,
+  pub entry: LedgerEntry,
 }
 
 #[cw_serde]
@@ -111,6 +123,7 @@ pub struct SelectResponse {
   pub taxes: Option<Vec<TaxRecipient>>,
   pub metadata: Option<Metadata>,
   pub events: Option<Vec<HouseEvent>>,
+  pub ledger: Option<Vec<LedgerEntryView>>,
 }
 
 #[cw_serde]

@@ -1,9 +1,10 @@
 use crate::{
   error::ContractResult,
-  msg::{AccountView, Metadata, SelectResponse},
+  msg::{AccountView, LedgerEntryView, Metadata, SelectResponse},
   state::{
-    is_rate_limited, sync_account_readonly, BANK_ACCOUNTS, CLIENTS, CONFIG, EVENTS, N_CLIENTS,
-    N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, OWNER, POOL, STAKE_ACCOUNTS, TAX_RECIPIENTS,
+    is_rate_limited, sync_account_readonly, BANK_ACCOUNTS, CLIENTS, CONFIG, EVENTS, LEDGER,
+    LEDGER_ENTRY_SEQ_NO, N_CLIENTS, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, OWNER, POOL,
+    STAKE_ACCOUNTS, TAX_RECIPIENTS,
   },
 };
 use cosmwasm_std::{Addr, Deps, Env, Order};
@@ -33,6 +34,7 @@ pub fn select(
         n_accounts: N_STAKE_ACCOUNTS.load(deps.storage)?,
         n_clients: N_CLIENTS.load(deps.storage)?,
         n_ledger_entries: N_LEDGER_ENTRIES.load(deps.storage)?,
+        ledger_entry_seq_no: LEDGER_ENTRY_SEQ_NO.load(deps.storage)?,
       }))
     })?,
 
@@ -42,6 +44,22 @@ pub fn select(
           .iter(deps.storage)?
           .take(20)
           .map(|x| x.unwrap())
+          .collect(),
+      ))
+    })?,
+
+    ledger: loader.view("ledger", |_| {
+      Ok(Some(
+        LEDGER
+          .range(deps.storage, None, None, Order::Ascending)
+          .take(20)
+          .map(|x| {
+            let (k, v) = x.unwrap();
+            LedgerEntryView {
+              seq_no: k.into(),
+              entry: v,
+            }
+          })
           .collect(),
       ))
     })?,
@@ -93,11 +111,8 @@ pub fn select(
       .unwrap_or(false);
 
       maybe_stake_account = if let Some(mut stake_account) = maybe_stake_account {
-        if sync_account_readonly(deps.storage, &mut stake_account).is_ok() {
-          Some(stake_account)
-        } else {
-          None
-        }
+        sync_account_readonly(deps.storage, deps.api, &mut stake_account, true).unwrap();
+        Some(stake_account)
       } else {
         None
       };

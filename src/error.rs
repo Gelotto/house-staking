@@ -38,6 +38,12 @@ pub enum ContractError {
 
   #[error("MissingSourceOrTarget")]
   MissingSourceOrTarget,
+
+  #[error("Unbonding")]
+  Unbonding,
+
+  #[error("NotUnstaked")]
+  NotUnstaked,
 }
 
 pub type ContractResult<T> = Result<T, ContractError>;

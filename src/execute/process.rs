@@ -41,7 +41,7 @@ pub fn process(
 
   // Abort if nothings being sent or received
   if maybe_incoming.is_none() && maybe_outgoing.is_none() {
-    amortize(deps.storage)?;
+    amortize(deps.storage, deps.api)?;
     return Ok(resp);
   }
 
@@ -274,7 +274,7 @@ fn make_payment(
   POOL.save(deps.storage, &pool)?;
   CLIENTS.save(deps.storage, info.sender.clone(), &client)?;
 
-  amortize(deps.storage)?;
+  amortize(deps.storage, deps.api)?;
 
   Ok(
     base_resp
@@ -325,7 +325,7 @@ fn take_revenue(
 
   POOL.save(deps.storage, &pool)?;
 
-  amortize(deps.storage)?;
+  amortize(deps.storage, deps.api)?;
 
   Ok(resp)
 }

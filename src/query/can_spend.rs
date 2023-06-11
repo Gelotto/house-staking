@@ -11,11 +11,11 @@ pub fn can_spend(
   deps: Deps,
   env: Env,
   client_address: Addr,
-  initiator: Addr,
+  spender: Addr,
   amount: Option<Uint128>,
 ) -> ContractResult<CanSpendResponse> {
   require_valid_address(deps.api, &client_address)?;
-  require_valid_address(deps.api, &initiator)?;
+  require_valid_address(deps.api, &spender)?;
 
   let config = CONFIG.load(deps.storage)?;
   let amount = amount.unwrap_or_default();
@@ -28,12 +28,12 @@ pub fn can_spend(
     Some(amount),
   )?;
 
-  let is_account_rate_limited = if initiator != client_address {
+  let is_account_rate_limited = if spender != client_address {
     is_rate_limited(
       deps.storage,
       &env.block,
       &config.account_rate_limit,
-      &initiator,
+      &spender,
       Some(amount),
     )?
   } else {

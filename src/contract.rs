@@ -1,8 +1,8 @@
 use crate::error::ContractResult;
-use crate::execute;
 use crate::msg::{ClientMsg, CreditMsg, ExecuteMsg, InstantiateMsg, MigrateMsg, PoolMsg, QueryMsg};
 use crate::query;
 use crate::state::{self};
+use crate::{execute, migrations};
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response};
 use cw2::set_contract_version;
@@ -72,6 +72,7 @@ pub fn query(
   Ok(match msg {
     QueryMsg::Select { fields, wallet } => to_binary(&query::select(deps, env, fields, wallet)?),
     QueryMsg::Client { address } => to_binary(&query::query_client(deps, address)?),
+    QueryMsg::Accounts { cursor, limit } => to_binary(&query::accounts(deps, cursor, limit)?),
     QueryMsg::CanSpend {
       client,
       initiator,
@@ -82,10 +83,11 @@ pub fn query(
 
 #[entry_point]
 pub fn migrate(
-  _deps: DepsMut,
+  deps: DepsMut,
   _env: Env,
-  _msg: MigrateMsg,
+  msg: MigrateMsg,
 ) -> ContractResult<Response> {
-  let resp = Response::default();
-  Ok(resp)
+  match msg {
+    MigrateMsg::V0_0_2 {} => migrations::v0_0_2::migrate(deps),
+  }
 }

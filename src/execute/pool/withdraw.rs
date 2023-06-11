@@ -25,17 +25,19 @@ pub fn withdraw(
       // remove the staking account
       STAKE_ACCOUNTS.remove(deps.storage, info.sender.clone());
       decrement(deps.storage, &N_STAKE_ACCOUNTS, 1)?;
-      resp = resp.add_submessage(build_send_submsg(&info.sender, unbonding.amount, &token)?);
+      resp = resp
+        .add_attribute("amount", unbonding.amount.to_string())
+        .add_submessage(build_send_submsg(&info.sender, unbonding.amount, &token)?);
     } else {
       // still unbonding
-      return Err(ContractError::NotAuthorized {});
+      return Err(ContractError::Unbonding);
     }
   } else {
-    // not unbonding
-    return Err(ContractError::NotAuthorized {});
+    // haven't unstaked yet
+    return Err(ContractError::NotUnstaked);
   }
 
-  amortize(deps.storage)?;
+  amortize(deps.storage, deps.api)?;
 
   Ok(resp)
 }
