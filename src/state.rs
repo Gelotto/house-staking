@@ -5,7 +5,9 @@ use crate::models::{
 };
 use crate::msg::InstantiateMsg;
 use crate::utils::{decrement, mul_pct};
-use cosmwasm_std::{Addr, Api, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Storage, Uint128};
+use cosmwasm_std::{
+  Addr, Api, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Storage, Uint128, Uint64,
+};
 use cw_acl::client::Acl;
 use cw_lib::models::Owner;
 use cw_lib::utils::funds::has_funds;
@@ -18,7 +20,6 @@ pub const POOL: Item<Pool> = Item::new("pool");
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const STAKE_ACCOUNTS: Map<Addr, StakeAccount> = Map::new("stake_accounts");
 pub const BANK_ACCOUNTS: Map<Addr, BankAccount> = Map::new("bank_accounts");
-pub const CLIENTS: Map<Addr, Client> = Map::new("clients");
 pub const LEDGER: Map<u128, LedgerEntry> = Map::new("ledger");
 pub const LEDGER_ENTRY_SEQ_NO: Item<Uint128> = Item::new("ledger_entry_seq_no");
 pub const N_LEDGER_ENTRIES: Item<u32> = Item::new("n_ledger_entries");
@@ -30,6 +31,9 @@ pub const LIQUIDITY_USAGE: Map<Addr, LiquidityUsage> = Map::new("liquidity_usage
 pub const USAGE: Map<Addr, Usage> = Map::new("usage");
 pub const MEMOIZATION_QUEUE: Deque<Addr> = Deque::new("memoization_queue");
 pub const EVENTS: Deque<HouseEvent> = Deque::new("events");
+
+pub const CLIENTS: Map<Addr, Client> = Map::new("clients");
+pub const CLIENT_EXECUTION_COUNTS: Map<Addr, Uint64> = Map::new("client_execution_counts");
 
 // pub const : Deque<Addr> = Deque::new("memoization_queue");
 

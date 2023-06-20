@@ -1,10 +1,10 @@
 use crate::{
   error::ContractResult,
-  msg::{AccountView, LedgerEntryView, Metadata, SelectResponse},
+  msg::{AccountView, ClientView, Metadata, SelectResponse},
   state::{
-    is_rate_limited, sync_account_readonly, BANK_ACCOUNTS, CLIENTS, CONFIG, EVENTS, LEDGER,
-    LEDGER_ENTRY_SEQ_NO, N_CLIENTS, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, OWNER, POOL,
-    STAKE_ACCOUNTS, TAX_RECIPIENTS,
+    is_rate_limited, sync_account_readonly, BANK_ACCOUNTS, CLIENTS, CLIENT_EXECUTION_COUNTS,
+    CONFIG, EVENTS, LEDGER_ENTRY_SEQ_NO, N_CLIENTS, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, OWNER,
+    POOL, STAKE_ACCOUNTS, TAX_RECIPIENTS,
   },
 };
 use cosmwasm_std::{Addr, Deps, Env, Order};
@@ -48,21 +48,21 @@ pub fn select(
       ))
     })?,
 
-    ledger: loader.view("ledger", |_| {
-      Ok(Some(
-        LEDGER
-          .range(deps.storage, None, None, Order::Ascending)
-          .take(20)
-          .map(|x| {
-            let (k, v) = x.unwrap();
-            LedgerEntryView {
-              seq_no: k.into(),
-              entry: v,
-            }
-          })
-          .collect(),
-      ))
-    })?,
+    // ledger: loader.view("ledger", |_| {
+    //   Ok(Some(
+    //     LEDGER
+    //       .range(deps.storage, None, None, Order::Ascending)
+    //       .take(20)
+    //       .map(|x| {
+    //         let (k, v) = x.unwrap();
+    //         LedgerEntryView {
+    //           seq_no: k.into(),
+    //           entry: v,
+    //         }
+    //       })
+    //       .collect(),
+    //   ))
+    // })?,
 
     // tax recipients list
     taxes: loader.view("taxes", |_| {
@@ -84,9 +84,11 @@ pub fn select(
         CLIENTS
           .range(deps.storage, None, None, Order::Ascending)
           .map(|r| {
-            let (k, mut v) = r.unwrap();
-            v.address = Some(k);
-            v
+            let (addr, client) = r.unwrap();
+            let executions = CLIENT_EXECUTION_COUNTS
+              .load(deps.storage, addr.clone())
+              .unwrap_or_default();
+            ClientView::new(&client, &addr, executions)
           })
           .collect(),
       ))

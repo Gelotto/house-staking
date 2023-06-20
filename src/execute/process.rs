@@ -5,8 +5,9 @@ use crate::{
   },
   state::{
     amortize, authorize_and_update_client, ensure_has_funds, ensure_min_amount, load_client,
-    validate_address, CLIENTS, CONFIG, EVENTS, LEDGER, LEDGER_ENTRY_SEQ_NO, MAX_EVENT_QUEUE_SIZE,
-    N_DELEGATION_MUTATIONS, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, POOL, USAGE,
+    validate_address, CLIENTS, CLIENT_EXECUTION_COUNTS, CONFIG, EVENTS, LEDGER,
+    LEDGER_ENTRY_SEQ_NO, MAX_EVENT_QUEUE_SIZE, N_DELEGATION_MUTATIONS, N_LEDGER_ENTRIES,
+    N_STAKE_ACCOUNTS, POOL, USAGE,
   },
   utils::{increment, mul_pct},
 };
@@ -134,6 +135,13 @@ pub fn process(
     EVENTS.pop_back(deps.storage)?;
   }
 
+  // Update client exection counter
+  CLIENT_EXECUTION_COUNTS.update(
+    deps.storage,
+    client_address.clone(),
+    |maybe_n| -> Result<_, ContractError> { Ok(maybe_n.unwrap_or_default() + Uint64::one()) },
+  )?;
+
   // Send full refund to initiator if any rate limit triggered.
   if is_rate_limit_triggered {
     if !incoming.amount.is_zero() {
@@ -150,11 +158,11 @@ pub fn process(
       resp = if outgoing.amount > incoming.amount {
         // Pay out of house to the outgoing account.
         let payment = outgoing.amount - incoming.amount;
-        make_payment(deps, info, payment, &resp)?
+        send(deps, info, payment, &resp)?
       } else {
         // Take payment from incoming account.
         let revenue = incoming.amount - outgoing.amount;
-        take_revenue(deps, env, info, revenue, &config, &resp)?
+        receive(deps, env, info, revenue, &config, &resp)?
       };
     }
     // Add submsg to response to send outgoing tokens
@@ -167,7 +175,7 @@ pub fn process(
     }
   } else if !incoming.amount.is_zero() {
     // There's only incoming, no outgoing, so the house takes revenue.
-    take_revenue(deps, env, info, incoming.amount, &config, &resp)?;
+    receive(deps, env, info, incoming.amount, &config, &resp)?;
   }
 
   Ok(resp)
@@ -248,7 +256,7 @@ fn throttle(
   Ok(maybe_event)
 }
 
-fn make_payment(
+fn send(
   deps: DepsMut,
   info: MessageInfo,
   payment: Uint128,
@@ -283,7 +291,7 @@ fn make_payment(
   )
 }
 
-fn take_revenue(
+fn receive(
   deps: DepsMut,
   _env: Env,
   info: MessageInfo,

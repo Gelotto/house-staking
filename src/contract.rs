@@ -89,5 +89,6 @@ pub fn migrate(
 ) -> ContractResult<Response> {
   match msg {
     MigrateMsg::V0_0_2 {} => migrations::v0_0_2::migrate(deps),
+    MigrateMsg::V0_0_3 {} => migrations::v0_0_3::migrate(deps),
   }
 }

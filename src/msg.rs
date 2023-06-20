@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Addr, Timestamp, Uint128, Uint64};
 use cw_lib::models::{Owner, Token};
 
 use crate::models::{
@@ -89,6 +89,7 @@ pub enum QueryMsg {
 #[cw_serde]
 pub enum MigrateMsg {
   V0_0_2 {},
+  V0_0_3 {},
 }
 
 #[cw_serde]
@@ -114,16 +115,44 @@ pub struct LedgerEntryView {
 }
 
 #[cw_serde]
+pub struct ClientView {
+  pub address: Addr,
+  pub config: ClientConfig,
+  pub connected_at: Timestamp,
+  pub is_suspended: bool,
+  pub revenue: Uint128,
+  pub expense: Uint128,
+  pub executions: Uint64,
+}
+
+impl ClientView {
+  pub fn new(
+    client: &Client,
+    address: &Addr,
+    executions: Uint64,
+  ) -> Self {
+    Self {
+      executions,
+      address: address.clone(),
+      config: client.config.clone(),
+      connected_at: client.connected_at,
+      is_suspended: client.is_suspended,
+      expense: client.expense,
+      revenue: client.revenue,
+    }
+  }
+}
+
+#[cw_serde]
 pub struct SelectResponse {
   pub owner: Option<Owner>,
   pub config: Option<Config>,
-  pub clients: Option<Vec<Client>>,
+  pub clients: Option<Vec<ClientView>>,
   pub pool: Option<Pool>,
   pub account: Option<AccountView>,
   pub taxes: Option<Vec<TaxRecipient>>,
   pub metadata: Option<Metadata>,
   pub events: Option<Vec<HouseEvent>>,
-  pub ledger: Option<Vec<LedgerEntryView>>,
 }
 
 #[cw_serde]
@@ -133,5 +162,5 @@ pub struct CanSpendResponse {
 
 #[cw_serde]
 pub struct ClientResponse {
-  pub client: Option<Client>,
+  pub client: Option<ClientView>,
 }
