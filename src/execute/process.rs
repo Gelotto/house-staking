@@ -12,7 +12,7 @@ use crate::{
   utils::{increment, mul_pct},
 };
 use cosmwasm_std::{
-  attr, Addr, BlockInfo, DepsMut, Env, Event, MessageInfo, Response, Storage, Uint128, Uint64,
+  attr, Addr, Api, BlockInfo, DepsMut, Env, Event, MessageInfo, Response, Storage, Uint128, Uint64,
 };
 use cw_lib::{
   models::Token,
@@ -79,6 +79,7 @@ pub fn process(
   // Apply rate limiting at the client contract level
   if let Some(event) = throttle(
     deps.storage,
+    deps.api,
     &env.block,
     &pool,
     &incoming,
@@ -105,28 +106,31 @@ pub fn process(
   }
 
   // Apply rate limiting at the initiator account level
-  if let Some(event) = throttle(
-    deps.storage,
-    &env.block,
-    &pool,
-    &incoming,
-    &maybe_outgoing,
-    &config.account_rate_limit,
-    &initiator,
-  )? {
-    match event {
-      RateLimitEvent::Throttled => return Err(ContractError::AccountSuspended),
-      RateLimitEvent::Triggered => {
-        is_rate_limit_triggered = true;
-        EVENTS.push_front(
-          deps.storage,
-          &HouseEvent::AccountRateLimitTriggered {
-            client: client_address.clone(),
-            initiator: initiator.clone(),
-            block: env.block.clone(),
-          },
-        )?;
-      },
+  if initiator != *client_address {
+    if let Some(event) = throttle(
+      deps.storage,
+      deps.api,
+      &env.block,
+      &pool,
+      &incoming,
+      &maybe_outgoing,
+      &config.account_rate_limit,
+      &initiator,
+    )? {
+      match event {
+        RateLimitEvent::Throttled => return Err(ContractError::AccountSuspended),
+        RateLimitEvent::Triggered => {
+          is_rate_limit_triggered = true;
+          EVENTS.push_front(
+            deps.storage,
+            &HouseEvent::AccountRateLimitTriggered {
+              client: client_address.clone(),
+              initiator: initiator.clone(),
+              block: env.block.clone(),
+            },
+          )?;
+        },
+      }
     }
   }
 
@@ -183,6 +187,7 @@ pub fn process(
 
 fn throttle(
   storage: &mut dyn Storage,
+  api: &dyn Api,
   block: &BlockInfo,
   pool: &Pool,
   incoming: &AccountTokenAmount,
@@ -193,6 +198,11 @@ fn throttle(
   let mut maybe_event = None;
   let time = block.time;
   let height = block.height;
+
+  // no need to assess rate limit if there's nothing outgoing
+  if maybe_outgoing.is_none() {
+    return Ok(None);
+  }
 
   USAGE.update(
     storage,
@@ -232,6 +242,9 @@ fn throttle(
       if (record.spent > record.added && (record.spent - record.added) >= spending_threshold)
         || is_same_block
       {
+        api.debug(format!(">>> usage record: {:?}", record).as_str());
+        api.debug(format!(">>> spending threshold: {:?}", spending_threshold.u128()).as_str());
+        api.debug(format!(">>> is same block: {:?}", is_same_block).as_str());
         maybe_event = Some(RateLimitEvent::Throttled);
       }
 

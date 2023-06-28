@@ -33,6 +33,7 @@ pub fn execute(
     ExecuteMsg::SetConfig { config } => execute::set_config(deps, env, info, config),
     ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),
     ExecuteMsg::SetTaxes { recipients } => execute::set_taxes(deps, env, info, recipients),
+    ExecuteMsg::Receive { revenue } => execute::receive(deps, env, info, revenue),
     ExecuteMsg::Process {
       initiator,
       incoming,

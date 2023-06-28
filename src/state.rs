@@ -1,10 +1,10 @@
 use crate::error::{ContractError, ContractResult};
 use crate::models::{
   BankAccount, Client, Config, HouseEvent, LedgerEntry, LedgerUpdates, LiquidityUsage, Pool,
-  RateLimitConfig, StakeAccount, TaxRecipient, Usage,
+  RateLimitConfig, RevenueStream, StakeAccount, TaxRecipient, Usage,
 };
 use crate::msg::InstantiateMsg;
-use crate::utils::{decrement, mul_pct};
+use crate::utils::{decrement, increment, mul_pct};
 use cosmwasm_std::{
   Addr, Api, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Storage, Uint128, Uint64,
 };
@@ -34,6 +34,7 @@ pub const EVENTS: Deque<HouseEvent> = Deque::new("events");
 
 pub const CLIENTS: Map<Addr, Client> = Map::new("clients");
 pub const CLIENT_EXECUTION_COUNTS: Map<Addr, Uint64> = Map::new("client_execution_counts");
+pub const STREAMS: Map<Addr, RevenueStream> = Map::new("revenue_streams");
 
 // pub const : Deque<Addr> = Deque::new("memoization_queue");
 
@@ -336,4 +337,50 @@ pub fn ensure_sender_is_allowed(
   } else {
     Ok(())
   }
+}
+
+pub fn upsert_ledger_entry(
+  storage: &mut dyn Storage,
+  pool: &Pool,
+  delta_revenue: Uint128,
+  delta_dividends: Uint128,
+  delta_loss: Uint128,
+) -> Result<LedgerEntry, ContractError> {
+  let n_entries = N_LEDGER_ENTRIES.load(storage)?;
+  let seq_no = LEDGER_ENTRY_SEQ_NO.load(storage)?;
+  let tag = N_DELEGATION_MUTATIONS.load(storage)?;
+
+  // First, we try to increment the latest existing entry instead of making a
+  // new one. we do this to keep the number of new entries created at a minimum
+  // to help amortize the sync process.
+  if n_entries > 0 {
+    let i_prev = seq_no.u128() - 1u128;
+    let mut prev_entry = LEDGER.load(storage, i_prev)?;
+    if prev_entry.tag == tag {
+      prev_entry.delta_revenue += delta_revenue;
+      prev_entry.delta_dividends += delta_dividends;
+      prev_entry.delta_loss += delta_loss;
+      LEDGER.save(storage, i_prev, &prev_entry)?;
+      return Ok(prev_entry);
+    }
+  }
+
+  // if we weren't able to increment the latest existing entry,
+  // we create a new one here.
+  let entry = LedgerEntry {
+    ref_count: N_STAKE_ACCOUNTS.load(storage)?,
+    liquidity: pool.liquidity,
+    delegation: pool.delegation,
+    delta_loss,
+    delta_revenue,
+    delta_dividends,
+    tag,
+  };
+
+  LEDGER.save(storage, seq_no.into(), &entry)?;
+
+  increment(storage, &N_LEDGER_ENTRIES, 1)?;
+  increment(storage, &LEDGER_ENTRY_SEQ_NO, Uint128::one())?;
+
+  Ok(entry)
 }

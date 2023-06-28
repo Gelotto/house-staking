@@ -58,6 +58,9 @@ pub enum ExecuteMsg {
     incoming: Option<AccountTokenAmount>,
     outgoing: Option<AccountTokenAmount>,
   },
+  Receive {
+    revenue: Uint128,
+  },
   SetConfig {
     config: Config,
   },

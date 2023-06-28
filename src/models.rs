@@ -91,6 +91,14 @@ pub struct Client {
 }
 
 #[cw_serde]
+pub struct RevenueStream {
+  pub address: Option<Addr>,
+  pub created_at: Timestamp,
+  pub revenue: Uint128,
+  pub execution_count: Uint64,
+}
+
+#[cw_serde]
 pub struct LedgerEntry {
   pub liquidity: Uint128,
   pub delegation: Uint128,
@@ -217,6 +225,20 @@ impl Client {
         url,
         budget,
       },
+    }
+  }
+}
+
+impl RevenueStream {
+  pub fn new(
+    created_at: Timestamp,
+    address: Option<Addr>,
+  ) -> Self {
+    Self {
+      address,
+      created_at,
+      revenue: Uint128::zero(),
+      execution_count: Uint64::zero(),
     }
   }
 }
