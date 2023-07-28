@@ -24,6 +24,7 @@ pub const LEDGER: Map<u128, LedgerEntry> = Map::new("ledger");
 pub const LEDGER_ENTRY_SEQ_NO: Item<Uint128> = Item::new("ledger_entry_seq_no");
 pub const N_LEDGER_ENTRIES: Item<u32> = Item::new("n_ledger_entries");
 pub const N_STAKE_ACCOUNTS: Item<u32> = Item::new("n_stake_accounts");
+pub const N_STAKE_ACCOUNTS_UNBONDING: Item<u32> = Item::new("n_stake_accounts_unbonding");
 pub const N_DELEGATION_MUTATIONS: Item<Uint128> = Item::new("n_delegation_mutations");
 pub const N_CLIENTS: Item<u32> = Item::new("n_clients");
 pub const TAX_RECIPIENTS: Map<Addr, TaxRecipient> = Map::new("tax_recipients");
@@ -31,12 +32,10 @@ pub const LIQUIDITY_USAGE: Map<Addr, LiquidityUsage> = Map::new("liquidity_usage
 pub const USAGE: Map<Addr, Usage> = Map::new("usage");
 pub const MEMOIZATION_QUEUE: Deque<Addr> = Deque::new("memoization_queue");
 pub const EVENTS: Deque<HouseEvent> = Deque::new("events");
-
 pub const CLIENTS: Map<Addr, Client> = Map::new("clients");
 pub const CLIENT_EXECUTION_COUNTS: Map<Addr, Uint64> = Map::new("client_execution_counts");
 pub const STREAMS: Map<Addr, RevenueStream> = Map::new("revenue_streams");
-
-// pub const : Deque<Addr> = Deque::new("memoization_queue");
+pub const TOTAL_STREAM_REVENUE: Item<Uint128> = Item::new("total_stream_revenue");
 
 /// Init contract state.
 pub fn initialize(
@@ -57,9 +56,11 @@ pub fn initialize(
   CONFIG.save(deps.storage, &msg.config)?;
   LEDGER_ENTRY_SEQ_NO.save(deps.storage, &Uint128::zero())?;
   N_STAKE_ACCOUNTS.save(deps.storage, &0)?;
+  N_STAKE_ACCOUNTS_UNBONDING.save(deps.storage, &0)?;
   N_CLIENTS.save(deps.storage, &0)?;
   N_LEDGER_ENTRIES.save(deps.storage, &0)?;
   N_DELEGATION_MUTATIONS.save(deps.storage, &Uint128::zero())?;
+  TOTAL_STREAM_REVENUE.save(deps.storage, &Uint128::zero())?;
   if let Some(recipients) = &msg.taxes {
     insert_tax_recipients(deps.storage, recipients)?;
   }
@@ -156,7 +157,7 @@ pub fn sync_account(
 /// procedure.
 pub fn sync_account_readonly(
   storage: &dyn Storage,
-  api: &dyn Api,
+  _api: &dyn Api,
   account: &mut StakeAccount,
   is_claiming: bool,
 ) -> ContractResult<LedgerUpdates> {
@@ -171,9 +172,6 @@ pub fn sync_account_readonly(
     current_seq_no -= Uint128::one();
   }
 
-  api.debug(format!(">>> current_seq_no: {}", current_seq_no.u128()).as_str());
-  api.debug(format!(">>> account.seq_no: {}", account.seq_no.u128()).as_str());
-
   if current_seq_no > account.seq_no {
     for i_entry in account.seq_no.u128()..current_seq_no.u128() {
       let mut entry = LEDGER.load(storage, i_entry)?;
@@ -181,9 +179,11 @@ pub fn sync_account_readonly(
       let gain = entry
         .delta_revenue
         .multiply_ratio(account.liquidity, entry.liquidity);
+
       let loss = entry
         .delta_loss
         .multiply_ratio(account.liquidity, entry.liquidity);
+
       let dividends = entry
         .delta_dividends
         .multiply_ratio(account.liquidity, entry.liquidity);
@@ -365,15 +365,19 @@ pub fn upsert_ledger_entry(
     }
   }
 
+  // `ref_count` is the number of accounts that will need to refer to the
+  // pending LedgerEntry when syncing it. Unbonding accounts are ignored.
+  let ref_count = N_STAKE_ACCOUNTS.load(storage)? - N_STAKE_ACCOUNTS_UNBONDING.load(storage)?;
+
   // if we weren't able to increment the latest existing entry,
   // we create a new one here.
   let entry = LedgerEntry {
-    ref_count: N_STAKE_ACCOUNTS.load(storage)?,
     liquidity: pool.liquidity,
     delegation: pool.delegation,
     delta_loss,
     delta_revenue,
     delta_dividends,
+    ref_count,
     tag,
   };
 

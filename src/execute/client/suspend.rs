@@ -19,7 +19,7 @@ pub fn suspend(
     client_address.clone(),
     |maybe_client| -> ContractResult<_> {
       if let Some(mut client) = maybe_client {
-        client.is_suspended = false;
+        client.is_suspended = true;
         Ok(client)
       } else {
         // client not found

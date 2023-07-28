@@ -64,6 +64,9 @@ pub enum ExecuteMsg {
   SetConfig {
     config: Config,
   },
+  SetOwner {
+    owner: Owner,
+  },
   SetTaxes {
     recipients: Vec<TaxRecipient>,
   },
@@ -91,13 +94,15 @@ pub enum QueryMsg {
 }
 #[cw_serde]
 pub enum MigrateMsg {
-  V0_0_2 {},
-  V0_0_3 {},
+  Empty {},
+  V0_0_4 {},
+  V0_0_5 {},
 }
 
 #[cw_serde]
 pub struct Metadata {
   pub n_accounts: u32,
+  pub n_unbonding: u32,
   pub n_clients: u32,
   pub n_ledger_entries: u32,
   pub ledger_entry_seq_no: Uint128,
@@ -115,6 +120,12 @@ pub struct AccountView {
 pub struct LedgerEntryView {
   pub seq_no: Uint128,
   pub entry: LedgerEntry,
+}
+
+#[cw_serde]
+pub struct Totals {
+  pub revenue: Uint128,
+  pub expense: Uint128,
 }
 
 #[cw_serde]
@@ -152,6 +163,7 @@ pub struct SelectResponse {
   pub config: Option<Config>,
   pub clients: Option<Vec<ClientView>>,
   pub pool: Option<Pool>,
+  pub totals: Option<Totals>,
   pub account: Option<AccountView>,
   pub taxes: Option<Vec<TaxRecipient>>,
   pub metadata: Option<Metadata>,

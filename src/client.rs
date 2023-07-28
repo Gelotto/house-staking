@@ -1,5 +1,10 @@
-use cosmwasm_std::{to_binary, Addr, Coin, Empty, QuerierWrapper, StdResult, Uint128, WasmMsg};
-use cw_lib::utils::funds::build_cw20_increase_allowance_msg;
+use cosmwasm_std::{
+  to_binary, Addr, Coin, Empty, QuerierWrapper, StdError, StdResult, Uint128, WasmMsg,
+};
+use cw_lib::{
+  models::Token,
+  utils::funds::{build_cw20_increase_allowance_msg, has_funds},
+};
 
 pub use crate::models::AccountTokenAmount;
 use crate::msg::{CanSpendResponse, ExecuteMsg, QueryMsg};
@@ -31,6 +36,42 @@ impl House {
       },
     )?;
     Ok(resp.can_spend)
+  }
+
+  pub fn receive(
+    &self,
+    token: Token,
+    amount: Uint128,
+    maybe_funds: Option<Vec<Coin>>,
+  ) -> StdResult<Vec<WasmMsg>> {
+    Ok(match token {
+      Token::Native { denom } => {
+        let funds = maybe_funds.unwrap_or_default();
+        if has_funds(&funds, amount, &denom) {
+          vec![WasmMsg::Execute {
+            contract_addr: self.address.clone().into(),
+            msg: to_binary(&ExecuteMsg::Receive { revenue: amount })?,
+            funds,
+          }]
+        } else {
+          return Err(StdError::GenericErr {
+            msg: "insufficient funds".into(),
+          });
+        }
+      },
+      Token::Cw20 {
+        address: cw20_address,
+      } => {
+        vec![
+          build_cw20_increase_allowance_msg(&cw20_address, &self.address, amount, None)?,
+          WasmMsg::Execute {
+            contract_addr: self.address.clone().into(),
+            msg: to_binary(&ExecuteMsg::Receive { revenue: amount })?,
+            funds: vec![],
+          },
+        ]
+      },
+    })
   }
 
   pub fn process(

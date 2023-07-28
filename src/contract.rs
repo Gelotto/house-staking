@@ -31,6 +31,7 @@ pub fn execute(
 ) -> ContractResult<Response> {
   match msg {
     ExecuteMsg::SetConfig { config } => execute::set_config(deps, env, info, config),
+    ExecuteMsg::SetOwner { owner } => execute::set_owner(deps, env, info, owner),
     ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),
     ExecuteMsg::SetTaxes { recipients } => execute::set_taxes(deps, env, info, recipients),
     ExecuteMsg::Receive { revenue } => execute::receive(deps, env, info, revenue),
@@ -89,7 +90,8 @@ pub fn migrate(
   msg: MigrateMsg,
 ) -> ContractResult<Response> {
   match msg {
-    MigrateMsg::V0_0_2 {} => migrations::v0_0_2::migrate(deps),
-    MigrateMsg::V0_0_3 {} => migrations::v0_0_3::migrate(deps),
+    MigrateMsg::V0_0_4 {} => migrations::v0_0_4::migrate(deps),
+    MigrateMsg::V0_0_5 {} => migrations::v0_0_5::migrate(deps),
+    MigrateMsg::Empty {} => Ok(Response::default()),
   }
 }

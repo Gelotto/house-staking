@@ -1,13 +1,13 @@
 use crate::{
   error::ContractResult,
-  msg::{AccountView, ClientView, Metadata, SelectResponse},
+  msg::{AccountView, ClientView, Metadata, SelectResponse, Totals},
   state::{
     is_rate_limited, sync_account_readonly, BANK_ACCOUNTS, CLIENTS, CLIENT_EXECUTION_COUNTS,
-    CONFIG, EVENTS, LEDGER_ENTRY_SEQ_NO, N_CLIENTS, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS, OWNER,
-    POOL, STAKE_ACCOUNTS, TAX_RECIPIENTS,
+    CONFIG, EVENTS, LEDGER_ENTRY_SEQ_NO, N_CLIENTS, N_LEDGER_ENTRIES, N_STAKE_ACCOUNTS,
+    N_STAKE_ACCOUNTS_UNBONDING, OWNER, POOL, STAKE_ACCOUNTS, TAX_RECIPIENTS, TOTAL_STREAM_REVENUE,
   },
 };
-use cosmwasm_std::{Addr, Deps, Env, Order};
+use cosmwasm_std::{Addr, Deps, Env, Order, Uint128};
 use cw_repository::client::Repository;
 
 pub fn select(
@@ -32,10 +32,28 @@ pub fn select(
     metadata: loader.view("metadata", |_| {
       Ok(Some(Metadata {
         n_accounts: N_STAKE_ACCOUNTS.load(deps.storage)?,
+        n_unbonding: N_STAKE_ACCOUNTS_UNBONDING.load(deps.storage)?,
         n_clients: N_CLIENTS.load(deps.storage)?,
         n_ledger_entries: N_LEDGER_ENTRIES.load(deps.storage)?,
         ledger_entry_seq_no: LEDGER_ENTRY_SEQ_NO.load(deps.storage)?,
       }))
+    })?,
+
+    totals: loader.view("totals", |_| {
+      let mut revenue = Uint128::zero();
+      let mut expense = Uint128::zero();
+
+      revenue += TOTAL_STREAM_REVENUE.load(deps.storage)?;
+
+      CLIENTS
+        .range(deps.storage, None, None, Order::Ascending)
+        .for_each(|r| {
+          let (_addr, client) = r.unwrap();
+          revenue += client.revenue;
+          expense += client.expense;
+        });
+
+      Ok(Some(Totals { revenue, expense }))
     })?,
 
     events: loader.view("events", |_| {
@@ -113,7 +131,9 @@ pub fn select(
       .unwrap_or(false);
 
       maybe_stake_account = if let Some(mut stake_account) = maybe_stake_account {
-        sync_account_readonly(deps.storage, deps.api, &mut stake_account, true).unwrap();
+        if stake_account.unbonding.is_none() {
+          sync_account_readonly(deps.storage, deps.api, &mut stake_account, true).unwrap();
+        }
         Some(stake_account)
       } else {
         None

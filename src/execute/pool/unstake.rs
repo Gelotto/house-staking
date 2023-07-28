@@ -2,7 +2,8 @@ use crate::{
   error::{ContractError, ContractResult},
   models::UnbondingInfo,
   state::{
-    amortize, load_stake_account, sync_account, N_DELEGATION_MUTATIONS, POOL, STAKE_ACCOUNTS,
+    amortize, load_stake_account, sync_account, N_DELEGATION_MUTATIONS, N_STAKE_ACCOUNTS_UNBONDING,
+    POOL, STAKE_ACCOUNTS,
   },
   utils::increment,
 };
@@ -48,6 +49,8 @@ pub fn unstake(
   // know that a new LedgerEntry should be created when nexted executed, instead
   // of updating the existing latest entry.
   increment(deps.storage, &N_DELEGATION_MUTATIONS, Uint128::one())?;
+
+  increment(deps.storage, &N_STAKE_ACCOUNTS_UNBONDING, 1)?;
 
   amortize(deps.storage, deps.api)?;
 

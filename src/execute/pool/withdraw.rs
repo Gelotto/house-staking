@@ -1,6 +1,9 @@
 use crate::{
   error::{ContractError, ContractResult},
-  state::{amortize, load_stake_account, CONFIG, N_STAKE_ACCOUNTS, POOL, STAKE_ACCOUNTS},
+  state::{
+    amortize, load_stake_account, CONFIG, N_STAKE_ACCOUNTS, N_STAKE_ACCOUNTS_UNBONDING, POOL,
+    STAKE_ACCOUNTS,
+  },
   utils::decrement,
 };
 use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response};
@@ -36,6 +39,8 @@ pub fn withdraw(
     // haven't unstaked yet
     return Err(ContractError::NotUnstaked);
   }
+
+  decrement(deps.storage, &N_STAKE_ACCOUNTS_UNBONDING, 1)?;
 
   amortize(deps.storage, deps.api)?;
 

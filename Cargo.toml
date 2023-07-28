@@ -1,6 +1,6 @@
 [package]
 name = "house-staking"
-version = "0.0.3"
+version = "0.0.5"
 authors = []
 edition = "2021"
 description = "CosmWasm House Staking Protocol"

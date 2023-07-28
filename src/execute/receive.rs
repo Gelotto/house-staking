@@ -3,9 +3,9 @@ use crate::{
   models::RevenueStream,
   state::{
     amortize, ensure_has_funds, ensure_min_amount, upsert_ledger_entry, validate_address, CONFIG,
-    POOL, STREAMS,
+    POOL, STREAMS, TOTAL_STREAM_REVENUE,
   },
-  utils::mul_pct,
+  utils::{increment, mul_pct},
 };
 use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response, Uint128, Uint64};
 use cw_lib::{models::Token, utils::funds::build_cw20_transfer_from_msg};
@@ -56,6 +56,9 @@ pub fn receive(
   } else {
     return Err(ContractError::InsufficientAmount);
   }
+
+  // increase aggregate total revenue received across all revenue streams
+  increment(deps.storage, &TOTAL_STREAM_REVENUE, revenue)?;
 
   // Update pool and ledger to reflect new token balances
   let tax = mul_pct(revenue, config.tax_rate);
