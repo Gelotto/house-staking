@@ -28,7 +28,7 @@ pub fn migrate(deps: DepsMut) -> ContractResult<Response> {
   N_STAKE_ACCOUNTS_UNBONDING.save(deps.storage, &n_unbonding)?;
 
   // collect stale ledger entries
-  let mut stale_seq_nos: Vec<u128> = Vec::with_capacity(80);
+  let mut stale_seq_nos: Vec<u128> = Vec::with_capacity(16);
   for seq_no in LEDGER
     .keys(deps.storage, None, None, Order::Ascending)
     .map(|r| r.unwrap())

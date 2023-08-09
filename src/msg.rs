@@ -94,7 +94,7 @@ pub enum QueryMsg {
 }
 #[cw_serde]
 pub enum MigrateMsg {
-  Empty {},
+  NoOp {},
   V0_0_4 {},
   V0_0_5 {},
 }

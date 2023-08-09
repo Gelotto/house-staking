@@ -89,9 +89,10 @@ pub fn migrate(
   _env: Env,
   msg: MigrateMsg,
 ) -> ContractResult<Response> {
+  set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
   match msg {
     MigrateMsg::V0_0_4 {} => migrations::v0_0_4::migrate(deps),
     MigrateMsg::V0_0_5 {} => migrations::v0_0_5::migrate(deps),
-    MigrateMsg::Empty {} => Ok(Response::default()),
+    MigrateMsg::NoOp {} => Ok(Response::default()),
   }
 }

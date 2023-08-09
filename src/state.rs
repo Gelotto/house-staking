@@ -354,14 +354,14 @@ pub fn upsert_ledger_entry(
   // new one. we do this to keep the number of new entries created at a minimum
   // to help amortize the sync process.
   if n_entries > 0 {
-    let i_prev = seq_no.u128() - 1u128;
-    let mut prev_entry = LEDGER.load(storage, i_prev)?;
-    if prev_entry.tag == tag {
-      prev_entry.delta_revenue += delta_revenue;
-      prev_entry.delta_dividends += delta_dividends;
-      prev_entry.delta_loss += delta_loss;
-      LEDGER.save(storage, i_prev, &prev_entry)?;
-      return Ok(prev_entry);
+    let i_curr_entry = seq_no.u128() - 1u128;
+    let mut curr_entry = LEDGER.load(storage, i_curr_entry)?;
+    if curr_entry.tag == tag {
+      curr_entry.delta_revenue += delta_revenue;
+      curr_entry.delta_dividends += delta_dividends;
+      curr_entry.delta_loss += delta_loss;
+      LEDGER.save(storage, i_curr_entry, &curr_entry)?;
+      return Ok(curr_entry);
     }
   }
 

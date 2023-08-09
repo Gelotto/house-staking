@@ -1,15 +1,12 @@
 use crate::{
   error::{ContractError, ContractResult},
-  models::{
-    AccountTokenAmount, Client, Config, HouseEvent, LedgerEntry, Pool, RateLimitConfig, Usage,
-  },
+  models::{AccountTokenAmount, Client, Config, HouseEvent, Pool, RateLimitConfig, Usage},
   state::{
     amortize, authorize_and_update_client, ensure_has_funds, ensure_min_amount, load_client,
-    validate_address, CLIENTS, CLIENT_EXECUTION_COUNTS, CONFIG, EVENTS, LEDGER,
-    LEDGER_ENTRY_SEQ_NO, MAX_EVENT_QUEUE_SIZE, N_DELEGATION_MUTATIONS, N_LEDGER_ENTRIES,
-    N_STAKE_ACCOUNTS, POOL, USAGE,
+    upsert_ledger_entry, validate_address, CLIENTS, CLIENT_EXECUTION_COUNTS, CONFIG, EVENTS,
+    MAX_EVENT_QUEUE_SIZE, POOL, USAGE,
   },
-  utils::{increment, mul_pct},
+  utils::mul_pct,
 };
 use cosmwasm_std::{
   attr, Addr, Api, BlockInfo, DepsMut, Env, Event, MessageInfo, Response, Storage, Uint128, Uint64,
@@ -154,9 +151,25 @@ pub fn process(
     return Ok(resp);
   }
 
+  deps.api.debug(
+    format!(
+      ">>> house received incoming amount: {}",
+      incoming.amount.u128()
+    )
+    .as_str(),
+  );
+
   // Take earnings and/or send payment
   if let Some(outgoing) = maybe_outgoing {
     outgoing.validate(deps.api)?;
+
+    deps.api.debug(
+      format!(
+        ">>> house received outgoing amount: {}",
+        outgoing.amount.u128()
+      )
+      .as_str(),
+    );
 
     if outgoing.amount != incoming.amount {
       resp = if outgoing.amount > incoming.amount {
@@ -288,6 +301,14 @@ fn send(
     payment,
   )?;
 
+  deps.api.debug(">>> sending payment from house...");
+  deps
+    .api
+    .debug(format!(">>> payment: {}", payment.u128()).as_str());
+  deps
+    .api
+    .debug(format!(">>> pool liquidity: {}", pool.liquidity.u128()).as_str());
+
   // Increment client's total expenditure, subtracting from pool's liquidity.
   client.expense += payment;
   pool.liquidity -= payment;
@@ -312,7 +333,7 @@ fn receive(
   config: &Config,
   base_resp: &Response,
 ) -> ContractResult<Response> {
-  // let from_address = from_address.unwrap_or(info.sender.clone());
+  deps.api.debug(">>> house receiving revenue...");
 
   ensure_min_amount(revenue, Uint128::one())?;
   authorize_and_update_client(
@@ -349,50 +370,4 @@ fn receive(
   amortize(deps.storage, deps.api)?;
 
   Ok(resp)
-}
-
-fn upsert_ledger_entry(
-  storage: &mut dyn Storage,
-  pool: &Pool,
-  delta_revenue: Uint128,
-  delta_dividends: Uint128,
-  delta_loss: Uint128,
-) -> Result<LedgerEntry, ContractError> {
-  let n_entries = N_LEDGER_ENTRIES.load(storage)?;
-  let seq_no = LEDGER_ENTRY_SEQ_NO.load(storage)?;
-  let tag = N_DELEGATION_MUTATIONS.load(storage)?;
-
-  // First, we try to increment the latest existing entry instead of making a
-  // new one. we do this to keep the number of new entries created at a minimum
-  // to help amortize the sync process.
-  if n_entries > 0 {
-    let i_prev = seq_no.u128() - 1u128;
-    let mut prev_entry = LEDGER.load(storage, i_prev)?;
-    if prev_entry.tag == tag {
-      prev_entry.delta_revenue += delta_revenue;
-      prev_entry.delta_dividends += delta_dividends;
-      prev_entry.delta_loss += delta_loss;
-      LEDGER.save(storage, i_prev, &prev_entry)?;
-      return Ok(prev_entry);
-    }
-  }
-
-  // if we weren't able to increment the latest existing entry,
-  // we create a new one here.
-  let entry = LedgerEntry {
-    ref_count: N_STAKE_ACCOUNTS.load(storage)?,
-    liquidity: pool.liquidity,
-    delegation: pool.delegation,
-    delta_loss,
-    delta_revenue,
-    delta_dividends,
-    tag,
-  };
-
-  LEDGER.save(storage, seq_no.into(), &entry)?;
-
-  increment(storage, &N_LEDGER_ENTRIES, 1)?;
-  increment(storage, &LEDGER_ENTRY_SEQ_NO, Uint128::one())?;
-
-  Ok(entry)
 }
