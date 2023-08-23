@@ -23,13 +23,13 @@ pub fn select(
     owner: loader.get("owner", &OWNER)?,
 
     // house configuration settings
-    config: loader.view("config", |_| Ok(Some(config.clone())))?,
+    config: loader.view("config", || Ok(Some(config.clone())))?,
 
     // aggregate totals
     pool: loader.get("pool", &POOL)?,
 
     // stats and metadata about the contract
-    metadata: loader.view("metadata", |_| {
+    metadata: loader.view("metadata", || {
       Ok(Some(Metadata {
         n_accounts: N_STAKE_ACCOUNTS.load(deps.storage)?,
         n_unbonding: N_STAKE_ACCOUNTS_UNBONDING.load(deps.storage)?,
@@ -39,7 +39,7 @@ pub fn select(
       }))
     })?,
 
-    totals: loader.view("totals", |_| {
+    totals: loader.view("totals", || {
       let mut revenue = Uint128::zero();
       let mut expense = Uint128::zero();
 
@@ -56,7 +56,7 @@ pub fn select(
       Ok(Some(Totals { revenue, expense }))
     })?,
 
-    events: loader.view("events", |_| {
+    events: loader.view("events", || {
       Ok(Some(
         EVENTS
           .iter(deps.storage)?
@@ -83,7 +83,7 @@ pub fn select(
     // })?,
 
     // tax recipients list
-    taxes: loader.view("taxes", |_| {
+    taxes: loader.view("taxes", || {
       Ok(Some(
         TAX_RECIPIENTS
           .range(deps.storage, None, None, Order::Ascending)
@@ -97,7 +97,7 @@ pub fn select(
     })?,
 
     // client contracts connected to the house
-    clients: loader.view("clients", |_| {
+    clients: loader.view("clients", || {
       Ok(Some(
         CLIENTS
           .range(deps.storage, None, None, Order::Ascending)
@@ -113,12 +113,7 @@ pub fn select(
     })?,
 
     // sender's delegation account
-    account: loader.view("account", |maybe_wallet| {
-      if maybe_wallet.is_none() {
-        return Ok(None);
-      }
-
-      let wallet = maybe_wallet.unwrap();
+    account: loader.account_view("account", |wallet| {
       let maybe_bank_account = BANK_ACCOUNTS.may_load(deps.storage, wallet.clone())?;
       let mut maybe_stake_account = STAKE_ACCOUNTS.may_load(deps.storage, wallet.clone())?;
       let is_suspended = is_rate_limited(

@@ -35,11 +35,12 @@ pub fn execute(
     ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),
     ExecuteMsg::SetTaxes { recipients } => execute::set_taxes(deps, env, info, recipients),
     ExecuteMsg::Receive { revenue } => execute::receive(deps, env, info, revenue),
+    ExecuteMsg::ProcessMany(jobs) => execute::process_many(deps, env, info, jobs),
     ExecuteMsg::Process {
       initiator,
       incoming,
       outgoing,
-    } => execute::process(deps, env, info, initiator, incoming, outgoing),
+    } => execute::process_one(deps, env, info, initiator, incoming, outgoing),
 
     ExecuteMsg::Pool(msg) => match msg {
       PoolMsg::Stake { amount } => execute::pool::stake(deps, env, info, amount),

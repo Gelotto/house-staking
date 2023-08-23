@@ -1,15 +1,18 @@
+use std::collections::HashMap;
+
 use crate::{
   error::{ContractError, ContractResult},
   models::{AccountTokenAmount, Client, Config, HouseEvent, Pool, RateLimitConfig, Usage},
+  msg::Job,
   state::{
-    amortize, authorize_and_update_client, ensure_has_funds, ensure_min_amount, load_client,
+    amortize, ensure_client_not_rate_limited, ensure_has_funds, ensure_min_amount, load_client,
     upsert_ledger_entry, validate_address, CLIENTS, CLIENT_EXECUTION_COUNTS, CONFIG, EVENTS,
     MAX_EVENT_QUEUE_SIZE, POOL, USAGE,
   },
   utils::mul_pct,
 };
 use cosmwasm_std::{
-  attr, Addr, Api, BlockInfo, DepsMut, Env, Event, MessageInfo, Response, Storage, Uint128, Uint64,
+  attr, Addr, Api, BlockInfo, DepsMut, Env, MessageInfo, Response, Storage, Uint128, Uint64,
 };
 use cw_lib::{
   models::Token,
@@ -21,7 +24,121 @@ enum RateLimitEvent {
   Triggered,
 }
 
-pub fn process(
+pub fn process_many(
+  deps: DepsMut,
+  env: Env,
+  info: MessageInfo,
+  jobs: Vec<Job>,
+) -> ContractResult<Response> {
+  let config = CONFIG.load(deps.storage)?;
+  let mut pool = POOL.load(deps.storage)?;
+  let mut client = load_client(deps.storage, &info.sender)?;
+  let mut incoming_totals: HashMap<Addr, Uint128> = HashMap::with_capacity(jobs.len());
+  let mut outgoing_totals: HashMap<Addr, Uint128> = HashMap::with_capacity(jobs.len());
+  let mut resp = Response::new().add_attributes(vec![attr("action", "process_many")]);
+
+  for job in jobs.iter() {
+    let is_rate_limited = process(
+      deps.api,
+      deps.storage,
+      &env,
+      &info,
+      &info.sender,
+      &mut client,
+      &mut pool,
+      &config,
+      job.initiator.clone(),
+      job.incoming.clone(),
+      job.outgoing.clone(),
+    )?;
+
+    // Send refund and continue if rate limited
+    if is_rate_limited {
+      if let Some(incoming) = &job.incoming {
+        if !incoming.amount.is_zero() {
+          resp = resp
+            .add_attribute("rate_limited", "true")
+            .add_submessage(build_send_submsg(
+              &job.initiator,
+              incoming.amount,
+              &pool.token,
+            )?);
+        }
+      }
+      continue;
+    }
+
+    if let Some(incoming) = &job.incoming {
+      if !incoming.amount.is_zero() {
+        incoming_totals.insert(
+          incoming.address.clone(),
+          *incoming_totals
+            .get(&incoming.address)
+            .unwrap_or(&Uint128::zero())
+            + incoming.amount,
+        );
+      }
+    }
+
+    if let Some(outgoing) = &job.outgoing {
+      if !outgoing.amount.is_zero() {
+        outgoing_totals.insert(
+          outgoing.address.clone(),
+          *outgoing_totals
+            .get(&outgoing.address)
+            .unwrap_or(&Uint128::zero())
+            + outgoing.amount,
+        );
+      }
+    }
+  }
+
+  // Update client exection counter
+  CLIENT_EXECUTION_COUNTS.update(
+    deps.storage,
+    info.sender.clone(),
+    |maybe_n| -> Result<_, ContractError> {
+      Ok(maybe_n.unwrap_or_default() + Uint64::from(jobs.len() as u64))
+    },
+  )?;
+
+  let mut total_incoming_amount = Uint128::zero();
+  let mut total_outgoing_amount = Uint128::zero();
+
+  // Transfer all incoming to house, regardless of whether there's any outgoing
+  // amount, because if there is indeed an outgoing amount, then we will
+  // transfer it from the house's own balance after incrementing it here.
+  for (from_addr, amount) in incoming_totals.iter() {
+    total_incoming_amount += amount;
+    match &pool.token {
+      Token::Native { denom } => {
+        ensure_has_funds(&info.funds, denom, *amount)?;
+      },
+      Token::Cw20 { address } => {
+        resp = resp.add_message(build_cw20_transfer_from_msg(
+          &from_addr,
+          &env.contract.address,
+          address,
+          *amount,
+        )?)
+      },
+    }
+  }
+
+  // Send outgoing amounts
+  for (to_addr, amount) in outgoing_totals.iter() {
+    total_outgoing_amount += amount;
+    resp = resp.add_submessage(build_send_submsg(to_addr, *amount, &pool.token)?)
+  }
+
+  Ok(resp.add_attributes(vec![
+    attr("jobs", jobs.len().to_string()),
+    attr("outgoing", total_outgoing_amount.to_string()),
+    attr("incoming", total_incoming_amount.to_string()),
+  ]))
+}
+
+pub fn process_one(
   deps: DepsMut,
   env: Env,
   info: MessageInfo,
@@ -29,18 +146,38 @@ pub fn process(
   maybe_incoming: Option<AccountTokenAmount>,
   maybe_outgoing: Option<AccountTokenAmount>,
 ) -> ContractResult<Response> {
-  let client_address = &info.sender;
-  let pool = POOL.load(deps.storage)?;
-  let config = CONFIG.load(deps.storage)?;
-  let mut client = load_client(deps.storage, &info.sender)?;
-  let mut resp = Response::new().add_attributes(vec![attr("action", "process")]);
+  Ok(process_many(
+    deps,
+    env,
+    info,
+    vec![Job {
+      initiator,
+      incoming: maybe_incoming,
+      outgoing: maybe_outgoing,
+    }],
+  )?)
+}
 
-  validate_address(deps.api, &initiator)?;
+fn process(
+  api: &dyn Api,
+  storage: &mut dyn Storage,
+  env: &Env,
+  info: &MessageInfo,
+  client_address: &Addr,
+  client: &mut Client,
+  pool: &mut Pool,
+  config: &Config,
+  initiator: Addr,
+  maybe_incoming: Option<AccountTokenAmount>,
+  maybe_outgoing: Option<AccountTokenAmount>,
+) -> ContractResult<bool> {
+  validate_address(api, &initiator)?;
+  ensure_client_not_rate_limited(client)?;
 
   // Abort if nothings being sent or received
   if maybe_incoming.is_none() && maybe_outgoing.is_none() {
-    amortize(deps.storage, deps.api)?;
-    return Ok(resp);
+    amortize(storage, api)?;
+    return Ok(false);
   }
 
   // Get or default the incoming AccountTokenAmount so we don't have to deal
@@ -50,33 +187,14 @@ pub fn process(
     amount: Uint128::zero(),
   });
 
-  incoming.validate(deps.api)?;
-
-  // Transfer all incoming to house, regardless of whether there's any outgoing
-  // amount, because if there is indeed an outgoing amount, then we will
-  // transfer it from the house's own balance after incrementing it here.
-  if !incoming.amount.is_zero() {
-    match &pool.token {
-      Token::Native { denom } => {
-        ensure_has_funds(&info.funds, denom, incoming.amount)?;
-      },
-      Token::Cw20 { address } => {
-        resp = resp.add_message(build_cw20_transfer_from_msg(
-          &incoming.address,
-          &env.contract.address,
-          address,
-          incoming.amount,
-        )?)
-      },
-    }
-  }
+  incoming.validate(api)?;
 
   let mut is_rate_limit_triggered = false;
 
   // Apply rate limiting at the client contract level
   if let Some(event) = throttle(
-    deps.storage,
-    deps.api,
+    storage,
+    api,
     &env.block,
     &pool,
     &incoming,
@@ -89,9 +207,9 @@ pub fn process(
       RateLimitEvent::Triggered => {
         is_rate_limit_triggered = true;
         client.is_suspended = true;
-        CLIENTS.save(deps.storage, client_address.clone(), &client)?;
+        CLIENTS.save(storage, client_address.clone(), &client)?;
         EVENTS.push_front(
-          deps.storage,
+          storage,
           &HouseEvent::ClientRateLimitTriggered {
             client: client_address.clone(),
             initiator: initiator.clone(),
@@ -105,8 +223,8 @@ pub fn process(
   // Apply rate limiting at the initiator account level
   if initiator != *client_address {
     if let Some(event) = throttle(
-      deps.storage,
-      deps.api,
+      storage,
+      api,
       &env.block,
       &pool,
       &incoming,
@@ -119,7 +237,7 @@ pub fn process(
         RateLimitEvent::Triggered => {
           is_rate_limit_triggered = true;
           EVENTS.push_front(
-            deps.storage,
+            storage,
             &HouseEvent::AccountRateLimitTriggered {
               client: client_address.clone(),
               initiator: initiator.clone(),
@@ -132,75 +250,39 @@ pub fn process(
   }
 
   // Ensure that the events buffer is capped at max size
-  while EVENTS.len(deps.storage)? > MAX_EVENT_QUEUE_SIZE {
-    EVENTS.pop_back(deps.storage)?;
+  while EVENTS.len(storage)? > MAX_EVENT_QUEUE_SIZE {
+    EVENTS.pop_back(storage)?;
   }
 
-  // Update client exection counter
-  CLIENT_EXECUTION_COUNTS.update(
-    deps.storage,
-    client_address.clone(),
-    |maybe_n| -> Result<_, ContractError> { Ok(maybe_n.unwrap_or_default() + Uint64::one()) },
-  )?;
-
-  // Send full refund to initiator if any rate limit triggered.
   if is_rate_limit_triggered {
-    if !incoming.amount.is_zero() {
-      resp = resp.add_submessage(build_send_submsg(&initiator, incoming.amount, &pool.token)?);
-    }
-    return Ok(resp);
+    return Ok(true);
   }
-
-  deps.api.debug(
-    format!(
-      ">>> house received incoming amount: {}",
-      incoming.amount.u128()
-    )
-    .as_str(),
-  );
 
   // Take earnings and/or send payment
   if let Some(outgoing) = maybe_outgoing {
-    outgoing.validate(deps.api)?;
-
-    deps.api.debug(
-      format!(
-        ">>> house received outgoing amount: {}",
-        outgoing.amount.u128()
-      )
-      .as_str(),
-    );
-
+    outgoing.validate(api)?;
     if outgoing.amount != incoming.amount {
-      resp = if outgoing.amount > incoming.amount {
+      if outgoing.amount > incoming.amount {
         // Pay out of house to the outgoing account.
         let payment = outgoing.amount - incoming.amount;
-        send(deps, info, payment, &resp)?
+        send(api, storage, info, pool, client, payment)?;
       } else {
         // Take payment from incoming account.
         let revenue = incoming.amount - outgoing.amount;
-        receive(deps, env, info, revenue, &config, &resp)?
+        receive(api, storage, info, pool, client, revenue, &config)?;
       };
-    }
-    // Add submsg to response to send outgoing tokens
-    if !outgoing.amount.is_zero() {
-      resp = resp.add_submessage(build_send_submsg(
-        &outgoing.address,
-        outgoing.amount,
-        &pool.token,
-      )?);
     }
   } else if !incoming.amount.is_zero() {
     // There's only incoming, no outgoing, so the house takes revenue.
-    receive(deps, env, info, incoming.amount, &config, &resp)?;
+    receive(api, storage, info, pool, client, incoming.amount, &config)?;
   }
 
-  Ok(resp)
+  Ok(false)
 }
 
 fn throttle(
   storage: &mut dyn Storage,
-  api: &dyn Api,
+  _api: &dyn Api,
   block: &BlockInfo,
   pool: &Pool,
   incoming: &AccountTokenAmount,
@@ -247,17 +329,8 @@ fn throttle(
       let spending_threshold =
         mul_pct(record.start_liquidity, Uint128::from(config.max_pct_change));
 
-      // Determine if this tx is on a block subsequent to the existing block
-      // height stored in the current LiquidityUsage record.
-      let is_same_block = record.prev_height.u64() == height;
-
       // Do checks BEFORE incrementing usage to check if ALREADY rate limited
-      if (record.spent > record.added && (record.spent - record.added) >= spending_threshold)
-        || is_same_block
-      {
-        api.debug(format!(">>> usage record: {:?}", record).as_str());
-        api.debug(format!(">>> spending threshold: {:?}", spending_threshold.u128()).as_str());
-        api.debug(format!(">>> is same block: {:?}", is_same_block).as_str());
+      if record.spent > record.added && (record.spent - record.added) >= spending_threshold {
         maybe_event = Some(RateLimitEvent::Throttled);
       }
 
@@ -283,69 +356,39 @@ fn throttle(
 }
 
 fn send(
-  deps: DepsMut,
-  info: MessageInfo,
+  api: &dyn Api,
+  storage: &mut dyn Storage,
+  info: &MessageInfo,
+  pool: &mut Pool,
+  client: &mut Client,
   payment: Uint128,
-  base_resp: &Response,
-) -> ContractResult<Response> {
+) -> ContractResult<()> {
   ensure_min_amount(payment, Uint128::one())?;
 
-  let mut pool = POOL.load(deps.storage)?;
-  let mut client = authorize_and_update_client(deps.storage, &info.sender, None)?;
-
-  upsert_ledger_entry(
-    deps.storage,
-    &pool,
-    Uint128::zero(),
-    Uint128::zero(),
-    payment,
-  )?;
-
-  deps.api.debug(">>> sending payment from house...");
-  deps
-    .api
-    .debug(format!(">>> payment: {}", payment.u128()).as_str());
-  deps
-    .api
-    .debug(format!(">>> pool liquidity: {}", pool.liquidity.u128()).as_str());
+  upsert_ledger_entry(storage, &pool, Uint128::zero(), Uint128::zero(), payment)?;
 
   // Increment client's total expenditure, subtracting from pool's liquidity.
   client.expense += payment;
   pool.liquidity -= payment;
 
-  POOL.save(deps.storage, &pool)?;
-  CLIENTS.save(deps.storage, info.sender.clone(), &client)?;
+  POOL.save(storage, &pool)?;
+  CLIENTS.save(storage, info.sender.clone(), &client)?;
 
-  amortize(deps.storage, deps.api)?;
+  amortize(storage, api)?;
 
-  Ok(
-    base_resp
-      .clone()
-      .add_event(Event::new("pay").add_attribute("amount", payment.to_string())),
-  )
+  Ok(())
 }
 
 fn receive(
-  deps: DepsMut,
-  _env: Env,
-  info: MessageInfo,
+  api: &dyn Api,
+  storage: &mut dyn Storage,
+  info: &MessageInfo,
+  pool: &mut Pool,
+  client: &mut Client,
   revenue: Uint128,
   config: &Config,
-  base_resp: &Response,
-) -> ContractResult<Response> {
-  deps.api.debug(">>> house receiving revenue...");
-
+) -> ContractResult<()> {
   ensure_min_amount(revenue, Uint128::one())?;
-  authorize_and_update_client(
-    deps.storage,
-    &info.sender,
-    Some(&|client: &mut Client| client.revenue += revenue),
-  )?;
-
-  let mut pool = POOL.load(deps.storage)?;
-  let resp = base_resp
-    .clone()
-    .add_event(Event::new("earn").add_attributes(vec![attr("amount", revenue.to_string())]));
 
   let tax = mul_pct(revenue, config.tax_rate);
   let revenue_post_tax = revenue - tax;
@@ -353,7 +396,7 @@ fn receive(
   let delta_dividends = revenue_post_tax - delta_revenue;
 
   upsert_ledger_entry(
-    deps.storage,
+    storage,
     &pool,
     delta_revenue,
     delta_dividends,
@@ -365,9 +408,12 @@ fn receive(
   pool.dividends += delta_dividends;
   pool.taxes += tax;
 
-  POOL.save(deps.storage, &pool)?;
+  client.revenue += revenue;
 
-  amortize(deps.storage, deps.api)?;
+  POOL.save(storage, &pool)?;
+  CLIENTS.save(storage, info.sender.clone(), &client)?;
 
-  Ok(resp)
+  amortize(storage, api)?;
+
+  Ok(())
 }

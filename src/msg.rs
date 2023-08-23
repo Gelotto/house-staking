@@ -26,6 +26,13 @@ pub struct ClientInitArgs {
 }
 
 #[cw_serde]
+pub struct Job {
+  pub initiator: Addr,
+  pub incoming: Option<AccountTokenAmount>,
+  pub outgoing: Option<AccountTokenAmount>,
+}
+
+#[cw_serde]
 pub enum ClientMsg {
   Connect(ClientInitArgs),
   Disconnect { address: Addr },
@@ -58,6 +65,7 @@ pub enum ExecuteMsg {
     incoming: Option<AccountTokenAmount>,
     outgoing: Option<AccountTokenAmount>,
   },
+  ProcessMany(Vec<Job>),
   Receive {
     revenue: Uint128,
   },

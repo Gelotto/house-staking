@@ -1,4 +1,4 @@
-#[cfg(feature = "library")]
+// #[cfg(feature = "library")]
 pub mod client;
 
 #[cfg(not(feature = "library"))]

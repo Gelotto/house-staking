@@ -10,7 +10,7 @@ mod set_owner;
 mod set_taxes;
 
 pub use pay_taxes::pay_taxes;
-pub use process::process;
+pub use process::{process_many, process_one};
 pub use receive::receive;
 pub use set_config::set_config;
 pub use set_owner::set_owner;

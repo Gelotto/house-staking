@@ -231,29 +231,12 @@ pub fn amortize(
   Ok(())
 }
 
-/// Ensure the client contract is authorized and, if so, pass the client to a
-/// callback. Returns and error if unauthorized.
-pub fn authorize_and_update_client(
-  storage: &mut dyn Storage,
-  addr: &Addr,
-  maybe_action: Option<&dyn Fn(&mut Client)>,
-) -> ContractResult<Client> {
-  Ok(
-    CLIENTS.update(storage, addr.clone(), |maybe_client| -> ContractResult<_> {
-      if let Some(mut client) = maybe_client {
-        if client.is_suspended {
-          return Err(ContractError::ClientSuspended);
-        } else {
-          if let Some(action) = maybe_action {
-            action(&mut client);
-          }
-          Ok(client)
-        }
-      } else {
-        return Err(ContractError::ClientNotFound);
-      }
-    })?,
-  )
+pub fn ensure_client_not_rate_limited(client: &Client) -> ContractResult<()> {
+  if client.is_suspended {
+    Err(ContractError::ClientSuspended)
+  } else {
+    Ok(())
+  }
 }
 
 pub fn is_rate_limited(

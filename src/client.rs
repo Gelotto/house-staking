@@ -7,6 +7,7 @@ use cw_lib::{
 };
 
 pub use crate::models::AccountTokenAmount;
+pub use crate::msg::Job as HouseJob;
 use crate::msg::{CanSpendResponse, ExecuteMsg, QueryMsg};
 
 pub struct House {
@@ -106,6 +107,39 @@ impl House {
         incoming: maybe_incoming,
         outgoing: maybe_outgoing,
       })?,
+    });
+
+    Ok(msgs)
+  }
+
+  pub fn process_many(
+    &self,
+    jobs: Vec<HouseJob>,
+    maybe_funds: Option<Vec<Coin>>,
+    maybe_token_address: Option<Addr>,
+  ) -> StdResult<Vec<WasmMsg>> {
+    let mut msgs: Vec<WasmMsg> = Vec::with_capacity(2);
+
+    // If the house uses a CW20 token, increase the house's spending allowance
+    // so it may transfer the required tokens from source accounts to itself.
+    if let Some(token_address) = maybe_token_address {
+      for job in jobs.iter() {
+        if let Some(incoming) = &job.incoming {
+          msgs.push(build_cw20_increase_allowance_msg(
+            &token_address,
+            &self.address,
+            incoming.amount,
+            None,
+          )?);
+        }
+      }
+    }
+
+    // Build the house "process" message to process revenue & payment.
+    msgs.push(WasmMsg::Execute {
+      contract_addr: self.address.clone().into(),
+      funds: maybe_funds.unwrap_or(vec![]),
+      msg: to_binary(&ExecuteMsg::ProcessMany(jobs))?,
     });
 
     Ok(msgs)
