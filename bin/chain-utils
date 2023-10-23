@@ -14,8 +14,8 @@ function validator-container-name() {
 }
 
 function cli-name() {
-  chain_env=$1
-  case $chain_env in
+  network=$1
+  case $network in
     juno)
       echo junod;;
     archway)
@@ -47,8 +47,8 @@ function micro-denom() {
 
 
 function node-url {
-  chain_env=$1
-  network=$2
+  network=$1
+  chain_env=$2
   case $chain_env in
     mainnet)
       case $network in
@@ -106,8 +106,8 @@ function micro-denom() {
 }
 
 function chain-id() {
-  chain_env=$1
-  network=$2
+  network=$1
+  chain_env=$2
   case $chain_env in
     mainnet)
       case $network in
@@ -127,8 +127,8 @@ function chain-id() {
 }
 
 function gas-prices() {
-  chain_env=$1
-  network=$2
+  network=$1
+  chain_env=$2
   case $chain_env in
     mainnet)
       case $network in

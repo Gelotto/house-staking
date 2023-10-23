@@ -14,7 +14,7 @@ pub fn resume(
   let action = "resume";
   let pool = POOL.load(deps.storage)?;
 
-  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
+  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, "/house/clients/resume")?;
 
   CLIENTS.update(
     deps.storage,

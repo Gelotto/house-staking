@@ -27,12 +27,17 @@ fi
 source $SCRIPT_DIR/chain-utils
 
 # compute network and environment-specific vars
-VALIDATOR_DOCKER_CONTAINER_NAME=$(validator-container-name $NETWORK)
-BINARY=$(cli-name $NETWORK)
+VALIDATOR_DOCKER_CONTAINER_NAME=$(validator-container-name $CHAIN_ID_TYPE)
+BINARY=$(cli-name $CHAIN_ID_TYPE)
 CHAIN_ID=$(chain-id $CHAIN_ID_TYPE $NETWORK)
 NODE=$(node-url $CHAIN_ID_TYPE $NETWORK)
 DENOM=$(micro-denom $CHAIN_ID_TYPE $NETWORK)
 GAS_PRICES="$(gas-prices $CHAIN_ID_TYPE $NETWORK)"
+
+echo ">>> Validator Container: $VALIDATOR_DOCKER_CONTAINER_NAME"
+echo ">>> Chain ID: $CHAIN_ID"
+echo ">>> RPC Node: $NODE"
+echo ">>> Gas Prices: $GAS_PRICES"
 
 BASE_BUILD_DIR="./builds/$NETWORK"
 BUILD_DIR="$BASE_BUILD_DIR/$BUILD_NAME"
@@ -106,14 +111,15 @@ function deploy_local() {
   mkdir -p $BUILD_DIR
 
   TXHASH=$(echo "$RESP" | jq -r '.txhash')
+  echo $RESP
   echo ">>> Tx hash: $TXHASH"
 
   # poll for new code ID
   CODE_ID=""
-  while [[ $CODE_ID == "" && $CODE_ID != "null" ]]
+  while [[ $CODE_ID == "" || $CODE_ID == "null" ]]
   do
     echo ">>> Polling for finalized transaction..."
-    CODE_ID=$($PREAMBLE $BINARY query tx $TXHASH --output json 2>/dev/null \
+    CODE_ID=$($PREAMBLE $BINARY query tx $TXHASH --output json \
         | jq -r '.logs[0].events[-1].attributes[-1].value')
     sleep 2
   done

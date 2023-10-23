@@ -16,7 +16,7 @@ pub fn connect(
   let action = "connect";
   let config = CONFIG.load(deps.storage)?;
 
-  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
+  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, "/house/clients/connect")?;
 
   if let Some(addr) = &init_args.address {
     // save the client or error if already exists

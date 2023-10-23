@@ -11,7 +11,7 @@ pub fn set_taxes(
   info: MessageInfo,
   recipients: Vec<TaxRecipient>,
 ) -> ContractResult<Response> {
-  let action = "set_taxes";
+  let action = "/house/set-taxes";
 
   ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
 

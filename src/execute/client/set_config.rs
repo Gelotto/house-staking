@@ -14,7 +14,7 @@ pub fn set_client_config(
 ) -> ContractResult<Response> {
   let action = "set_client_config";
 
-  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
+  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, "/house/clients/set-config")?;
 
   CLIENTS.update(
     deps.storage,

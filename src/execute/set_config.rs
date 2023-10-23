@@ -13,7 +13,7 @@ pub fn set_config(
 ) -> ContractResult<Response> {
   let action = "set_config";
 
-  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
+  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, "/house/set-config")?;
 
   CONFIG.save(deps.storage, &config)?;
 

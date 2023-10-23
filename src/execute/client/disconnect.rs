@@ -13,7 +13,7 @@ pub fn disconnect(
 ) -> ContractResult<Response> {
   let action = "disconnect";
 
-  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
+  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, "/house/clients/disconnect")?;
 
   if CLIENTS.has(deps.storage, client_address.clone()) {
     CLIENTS.remove(deps.storage, client_address.clone());

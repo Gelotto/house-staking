@@ -13,7 +13,7 @@ pub fn set_owner(
 ) -> ContractResult<Response> {
   let action = "set_owner";
 
-  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
+  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, "/house/set-owner")?;
 
   OWNER.save(deps.storage, &owner)?;
 

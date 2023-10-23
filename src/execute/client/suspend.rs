@@ -12,7 +12,7 @@ pub fn suspend(
 ) -> ContractResult<Response> {
   let action = "suspend";
 
-  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, action)?;
+  ensure_sender_is_allowed(&deps.as_ref(), &info.sender, "/house/clients/suspend")?;
   suspend_client(deps.storage, &client_address)?;
 
   Ok(Response::new().add_attributes(vec![attr("action", action)]))
