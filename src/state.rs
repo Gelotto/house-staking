@@ -159,7 +159,7 @@ pub fn sync_account_readonly(
   storage: &dyn Storage,
   _api: &dyn Api,
   account: &mut StakeAccount,
-  is_claiming: bool,
+  is_final: bool,
 ) -> ContractResult<LedgerUpdates> {
   let mut current_seq_no = LEDGER_ENTRY_SEQ_NO.load(storage)?;
 
@@ -168,7 +168,7 @@ pub fn sync_account_readonly(
     updated_entries: vec![],
   };
 
-  if !current_seq_no.is_zero() && !is_claiming {
+  if !current_seq_no.is_zero() && !is_final {
     current_seq_no -= Uint128::one();
   }
 

@@ -7,6 +7,7 @@ from base64 import decodebytes as b64_decode
 
 raw_json_str = sys.stdin.readline()
 
+
 if raw_json_str:
     try:
         data = json.loads(raw_json_str)

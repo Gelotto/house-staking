@@ -1,0 +1,150 @@
+#!/usr/bin/bash
+#
+# copy compiled wasm target to docker container running local dev validator
+# and deploy it.
+
+function validator-container-name() {
+  chain_env=$1
+  case $chain_env in
+    juno)
+      echo juno_node_1;;
+    archway)
+      echo archway_node_1;;
+  esac
+}
+
+function cli-name() {
+  chain_env=$1
+  case $chain_env in
+    juno)
+      echo junod;;
+    archway)
+      echo archwayd;;
+  esac
+}
+
+function micro-denom() {
+  chain_env=$1
+  network=$2
+  sender_arg=$3
+  if [ -n "$sender_arg" ]; then
+    echo $sender_arg
+  else
+    case $chain_env in
+      mainnet)
+        echo "Missing --from account" >&2
+        exit -1;;
+      *)
+        case $network in
+          juno)
+            echo juno16g2rahf5846rxzp3fwlswy08fz8ccuwk03k57y;;
+          archway)
+            echo archway1mzgucqnfr2l8cj5apvdpllhzt4zeuh2c9u7svt;;
+        esac;;
+    esac
+  fi
+}
+
+
+function node-url {
+  chain_env=$1
+  network=$2
+  case $chain_env in
+    mainnet)
+      case $network in
+        juno)
+          echo "https://juno.kingnodes.com:443";;
+        archway)
+          echo "https://rpc.mainnet.archway.io:443";;
+      esac;;
+    *)
+      echo "http://localhost:26657";;
+  esac
+}
+
+function wasm-store-instantiation-fees-flag() {
+  chain_env=$1
+  network=$2
+  case $chain_env in 
+    mainnet)
+      denom=$(micro-denom $chain_env $network)
+      case $network in
+        juno)
+          echo "--fees 300000$denom";;
+        archway)
+          echo "--fees 3500000000000000000$denom";;
+      esac;;
+    *)
+      case $network in
+        juno)
+          echo "";;
+        archway)
+          echo "";;
+      esac;;
+  esac
+}
+
+function micro-denom() {
+  chain_env=$1
+  network=$2
+  case $chain_env in
+    mainnet)
+      case $network in
+        juno)
+          echo ujuno;;
+        archway)
+          echo aarch;;
+      esac;;
+    *)
+      case $network in
+        juno)
+          echo ujunox;;
+        archway)
+          echo aarch;;
+      esac;;
+  esac
+}
+
+function chain-id() {
+  chain_env=$1
+  network=$2
+  case $chain_env in
+    mainnet)
+      case $network in
+        juno)
+          echo juno-1;;
+        archway)
+          echo archway-1;;
+      esac;;
+    *)
+      case $network in
+        juno)
+          echo testing;;
+        archway)
+          echo localnet-1;;
+      esac;;
+  esac
+}
+
+function gas-prices() {
+  chain_env=$1
+  network=$2
+  case $chain_env in
+    mainnet)
+      case $network in
+        juno)
+          echo 0.1ujuno;;
+        archway)
+          echo "$($PREAMBLE $BINARY q rewards estimate-fees 1 --output json \
+            | jq -r '.gas_unit_price | (.amount + .denom)')";;
+      esac;;
+    *)
+      case $network in
+        juno)
+          echo 0.1ujunox;;
+        archway)
+          echo "$($PREAMBLE $BINARY q rewards estimate-fees 1 --output json \
+            | jq -r '.gas_unit_price | (.amount + .denom)')";;
+      esac;;
+    esac
+}

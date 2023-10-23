@@ -8,7 +8,7 @@ use crate::{
   },
 };
 use cosmwasm_std::{Addr, Deps, Env, Order, Uint128};
-use cw_repository::client::Repository;
+use cw_lib::loader::StateLoader;
 
 pub fn select(
   deps: Deps,
@@ -16,7 +16,7 @@ pub fn select(
   fields: Option<Vec<String>>,
   wallet: Option<Addr>,
 ) -> ContractResult<SelectResponse> {
-  let loader = Repository::loader(deps.storage, &fields, &wallet);
+  let loader = StateLoader::new(deps.storage, &fields, &wallet);
   let config = CONFIG.load(deps.storage)?;
 
   Ok(SelectResponse {
