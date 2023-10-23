@@ -44,6 +44,9 @@ pub enum ContractError {
 
   #[error("NotUnstaked")]
   NotUnstaked,
+
+  #[error("BudgetExceeded")]
+  BudgetExceeded,
 }
 
 pub type ContractResult<T> = Result<T, ContractError>;

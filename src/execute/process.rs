@@ -6,8 +6,8 @@ use crate::{
   msg::Job,
   state::{
     amortize, ensure_client_not_rate_limited, ensure_has_funds, ensure_min_amount, load_client,
-    upsert_ledger_entry, validate_address, CLIENTS, CLIENT_EXECUTION_COUNTS, CONFIG, EVENTS,
-    MAX_EVENT_QUEUE_SIZE, POOL, USAGE,
+    suspend_client, upsert_ledger_entry, validate_address, CLIENTS, CLIENT_EXECUTION_COUNTS,
+    CONFIG, EVENTS, MAX_EVENT_QUEUE_SIZE, POOL, USAGE,
   },
   utils::mul_pct,
 };
@@ -180,6 +180,21 @@ fn process(
     return Ok(false);
   }
 
+  // Check if outgoing amount exceeds budget. If not, disconnect the client if
+  // the budget is all used up at the end.
+  let mut suspend_after_use = false;
+  if let Some(budget) = &client.config.budget {
+    if let Some(outgoing) = &maybe_outgoing {
+      if outgoing.amount > *budget {
+        return Err(ContractError::BudgetExceeded);
+      } else {
+        let remaining_budget = *budget - outgoing.amount;
+        client.config.budget = Some(remaining_budget);
+        suspend_after_use = remaining_budget.is_zero();
+      }
+    }
+  }
+
   // Get or default the incoming AccountTokenAmount so we don't have to deal
   // with the Option value going forward.
   let incoming = maybe_incoming.unwrap_or_else(|| AccountTokenAmount {
@@ -191,37 +206,9 @@ fn process(
 
   let mut is_rate_limit_triggered = false;
 
-  // Apply rate limiting at the client contract level
-  if let Some(event) = throttle(
-    storage,
-    api,
-    &env.block,
-    &pool,
-    &incoming,
-    &maybe_outgoing,
-    &client.config.rate_limit,
-    &client_address,
-  )? {
-    match event {
-      RateLimitEvent::Throttled => return Err(ContractError::ClientSuspended),
-      RateLimitEvent::Triggered => {
-        is_rate_limit_triggered = true;
-        client.is_suspended = true;
-        CLIENTS.save(storage, client_address.clone(), &client)?;
-        EVENTS.push_front(
-          storage,
-          &HouseEvent::ClientRateLimitTriggered {
-            client: client_address.clone(),
-            initiator: initiator.clone(),
-            block: env.block.clone(),
-          },
-        )?;
-      },
-    }
-  }
-
-  // Apply rate limiting at the initiator account level
-  if initiator != *client_address {
+  // Apply rate limiting if no budget is set for the client.
+  if client.config.budget.is_none() {
+    // Apply rate limiting at the client contract level
     if let Some(event) = throttle(
       storage,
       api,
@@ -229,22 +216,52 @@ fn process(
       &pool,
       &incoming,
       &maybe_outgoing,
-      &config.account_rate_limit,
-      &initiator,
+      &client.config.rate_limit,
+      &client_address,
     )? {
       match event {
-        RateLimitEvent::Throttled => return Err(ContractError::AccountSuspended),
+        RateLimitEvent::Throttled => return Err(ContractError::ClientSuspended),
         RateLimitEvent::Triggered => {
           is_rate_limit_triggered = true;
+          client.is_suspended = true;
+          CLIENTS.save(storage, client_address.clone(), &client)?;
           EVENTS.push_front(
             storage,
-            &HouseEvent::AccountRateLimitTriggered {
+            &HouseEvent::ClientRateLimitTriggered {
               client: client_address.clone(),
               initiator: initiator.clone(),
               block: env.block.clone(),
             },
           )?;
         },
+      }
+    }
+    // Apply rate limiting at the initiator account level
+    if initiator != *client_address {
+      if let Some(event) = throttle(
+        storage,
+        api,
+        &env.block,
+        &pool,
+        &incoming,
+        &maybe_outgoing,
+        &config.account_rate_limit,
+        &initiator,
+      )? {
+        match event {
+          RateLimitEvent::Throttled => return Err(ContractError::AccountSuspended),
+          RateLimitEvent::Triggered => {
+            is_rate_limit_triggered = true;
+            EVENTS.push_front(
+              storage,
+              &HouseEvent::AccountRateLimitTriggered {
+                client: client_address.clone(),
+                initiator: initiator.clone(),
+                block: env.block.clone(),
+              },
+            )?;
+          },
+        }
       }
     }
   }
@@ -275,6 +292,11 @@ fn process(
   } else if !incoming.amount.is_zero() {
     // There's only incoming, no outgoing, so the house takes revenue.
     receive(api, storage, info, pool, client, incoming.amount, &config)?;
+  }
+
+  // Suspend client when it has used all of its remaining budget
+  if suspend_after_use {
+    suspend_client(storage, client_address)?;
   }
 
   Ok(false)

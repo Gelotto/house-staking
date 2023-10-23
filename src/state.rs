@@ -80,6 +80,26 @@ pub fn insert_tax_recipients(
   Ok(())
 }
 
+pub fn suspend_client(
+  storage: &mut dyn Storage,
+  client_addr: &Addr,
+) -> ContractResult<()> {
+  CLIENTS.update(
+    storage,
+    client_addr.clone(),
+    |maybe_client| -> ContractResult<_> {
+      if let Some(mut client) = maybe_client {
+        client.is_suspended = true;
+        Ok(client)
+      } else {
+        // client not found
+        Err(ContractError::NotAuthorized {})
+      }
+    },
+  )?;
+  Ok(())
+}
+
 /// Load a StakeAccount or return error.
 pub fn load_stake_account(
   storage: &dyn Storage,
