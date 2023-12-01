@@ -1,5 +1,6 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Timestamp, Uint128, Uint64};
+use cw20::Cw20ReceiveMsg;
 use cw_lib::models::{Owner, Token};
 
 use crate::models::{
@@ -66,8 +67,9 @@ pub enum ExecuteMsg {
     outgoing: Option<AccountTokenAmount>,
   },
   ProcessMany(Vec<Job>),
-  Receive {
-    revenue: Uint128,
+  Receive(Cw20ReceiveMsg),
+  ReceiveNative {
+    amount: Uint128,
   },
   SetConfig {
     config: Config,
@@ -79,6 +81,18 @@ pub enum ExecuteMsg {
     recipients: Vec<TaxRecipient>,
   },
   PayTaxes,
+}
+
+#[cw_serde]
+pub enum Cw20ReceiveInnerMsg {
+  Receive {},
+  Stake {},
+  Process {
+    initiator: Addr,
+    incoming: Option<AccountTokenAmount>,
+    outgoing: Option<AccountTokenAmount>,
+  },
+  ProcessMany(Vec<Job>),
 }
 
 #[cw_serde]
@@ -105,6 +119,7 @@ pub enum MigrateMsg {
   NoOp {},
   V0_0_4 {},
   V0_0_5 {},
+  SetOwner {},
 }
 
 #[cw_serde]

@@ -29,10 +29,12 @@ pub fn process_many(
   env: Env,
   info: MessageInfo,
   jobs: Vec<Job>,
+  maybe_cw20_sender: Option<Addr>,
 ) -> ContractResult<Response> {
+  let client_addr = maybe_cw20_sender.unwrap_or_else(|| info.sender.clone());
   let config = CONFIG.load(deps.storage)?;
   let mut pool = POOL.load(deps.storage)?;
-  let mut client = load_client(deps.storage, &info.sender)?;
+  let mut client = load_client(deps.storage, &client_addr)?;
   let mut incoming_totals: HashMap<Addr, Uint128> = HashMap::with_capacity(jobs.len());
   let mut outgoing_totals: HashMap<Addr, Uint128> = HashMap::with_capacity(jobs.len());
   let mut resp = Response::new().add_attributes(vec![attr("action", "process_many")]);
@@ -42,8 +44,7 @@ pub fn process_many(
       deps.api,
       deps.storage,
       &env,
-      &info,
-      &info.sender,
+      &client_addr,
       &mut client,
       &mut pool,
       &config,
@@ -96,7 +97,7 @@ pub fn process_many(
   // Update client exection counter
   CLIENT_EXECUTION_COUNTS.update(
     deps.storage,
-    info.sender.clone(),
+    client_addr.clone(),
     |maybe_n| -> Result<_, ContractError> {
       Ok(maybe_n.unwrap_or_default() + Uint64::from(jobs.len() as u64))
     },
@@ -145,6 +146,7 @@ pub fn process_one(
   initiator: Addr,
   maybe_incoming: Option<AccountTokenAmount>,
   maybe_outgoing: Option<AccountTokenAmount>,
+  maybe_cw20_sender: Option<Addr>,
 ) -> ContractResult<Response> {
   Ok(process_many(
     deps,
@@ -155,6 +157,7 @@ pub fn process_one(
       incoming: maybe_incoming,
       outgoing: maybe_outgoing,
     }],
+    maybe_cw20_sender,
   )?)
 }
 
@@ -162,7 +165,6 @@ fn process(
   api: &dyn Api,
   storage: &mut dyn Storage,
   env: &Env,
-  info: &MessageInfo,
   client_address: &Addr,
   client: &mut Client,
   pool: &mut Pool,
@@ -198,7 +200,7 @@ fn process(
   // Get or default the incoming AccountTokenAmount so we don't have to deal
   // with the Option value going forward.
   let incoming = maybe_incoming.unwrap_or_else(|| AccountTokenAmount {
-    address: info.sender.clone(),
+    address: client_address.clone(),
     amount: Uint128::zero(),
   });
 
@@ -282,16 +284,24 @@ fn process(
       if outgoing.amount > incoming.amount {
         // Pay out of house to the outgoing account.
         let payment = outgoing.amount - incoming.amount;
-        send(api, storage, info, pool, client, payment)?;
+        send(api, storage, pool, client, payment, client_address)?;
       } else {
         // Take payment from incoming account.
         let revenue = incoming.amount - outgoing.amount;
-        receive(api, storage, info, pool, client, revenue, &config)?;
+        receive(api, storage, pool, client, revenue, &config, client_address)?;
       };
     }
   } else if !incoming.amount.is_zero() {
     // There's only incoming, no outgoing, so the house takes revenue.
-    receive(api, storage, info, pool, client, incoming.amount, &config)?;
+    receive(
+      api,
+      storage,
+      pool,
+      client,
+      incoming.amount,
+      &config,
+      client_address,
+    )?;
   }
 
   // Suspend client when it has used all of its remaining budget
@@ -380,10 +390,10 @@ fn throttle(
 fn send(
   api: &dyn Api,
   storage: &mut dyn Storage,
-  info: &MessageInfo,
   pool: &mut Pool,
   client: &mut Client,
   payment: Uint128,
+  client_addr: &Addr,
 ) -> ContractResult<()> {
   ensure_min_amount(payment, Uint128::one())?;
 
@@ -394,7 +404,7 @@ fn send(
   pool.liquidity -= payment;
 
   POOL.save(storage, &pool)?;
-  CLIENTS.save(storage, info.sender.clone(), &client)?;
+  CLIENTS.save(storage, client_addr.clone(), &client)?;
 
   amortize(storage, api)?;
 
@@ -404,11 +414,11 @@ fn send(
 fn receive(
   api: &dyn Api,
   storage: &mut dyn Storage,
-  info: &MessageInfo,
   pool: &mut Pool,
   client: &mut Client,
   revenue: Uint128,
   config: &Config,
+  client_addr: &Addr,
 ) -> ContractResult<()> {
   ensure_min_amount(revenue, Uint128::one())?;
 
@@ -433,7 +443,7 @@ fn receive(
   client.revenue += revenue;
 
   POOL.save(storage, &pool)?;
-  CLIENTS.save(storage, info.sender.clone(), &client)?;
+  CLIENTS.save(storage, client_addr.clone(), &client)?;
 
   amortize(storage, api)?;
 

@@ -7,7 +7,7 @@ use crate::{
   },
   utils::increment,
 };
-use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response, Uint128};
+use cosmwasm_std::{attr, Addr, DepsMut, Env, MessageInfo, Response, Uint128};
 use cw_lib::{models::Token, utils::funds::build_cw20_transfer_from_submsg};
 
 pub fn stake(
@@ -15,14 +15,16 @@ pub fn stake(
   env: Env,
   info: MessageInfo,
   amount: Uint128,
+  maybe_cw20_sender: Option<Addr>,
 ) -> ContractResult<Response> {
   let action = "stake";
+  let sender = maybe_cw20_sender.unwrap_or_else(|| info.sender.clone());
   let seq_no = LEDGER_ENTRY_SEQ_NO.load(deps.storage)?;
   let pool = POOL.load(deps.storage)?;
 
   // get or create the StakeAccount
   let mut account = STAKE_ACCOUNTS
-    .may_load(deps.storage, info.sender.clone())?
+    .may_load(deps.storage, sender.clone())?
     .unwrap_or_else(|| StakeAccount::new(Uint128::zero(), seq_no));
 
   // user must first withdraw unbonded amount before staking again
@@ -34,7 +36,7 @@ pub fn stake(
   // add the staker's address to the memoization queue.
   if account.delegation.is_zero() {
     increment(deps.storage, &N_STAKE_ACCOUNTS, 1)?;
-    MEMOIZATION_QUEUE.push_back(deps.storage, &info.sender)?;
+    MEMOIZATION_QUEUE.push_back(deps.storage, &sender)?;
   }
 
   // increment the pool's net delegation and liquidity
@@ -49,7 +51,7 @@ pub fn stake(
   account.delegation += amount;
   account.liquidity += amount;
 
-  STAKE_ACCOUNTS.save(deps.storage, info.sender.clone(), &account)?;
+  STAKE_ACCOUNTS.save(deps.storage, sender.clone(), &account)?;
 
   // increment the delegation mutation counter, which lets the process method
   // know that a new LedgerEntry should be created when nexted executed, instead
@@ -71,7 +73,7 @@ pub fn stake(
       address: cw20_token_address,
     } => {
       resp = resp.add_submessage(build_cw20_transfer_from_submsg(
-        &info.sender,
+        &sender,
         &env.contract.address,
         cw20_token_address,
         amount,

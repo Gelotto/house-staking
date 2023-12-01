@@ -7,7 +7,7 @@ use crate::{
   },
   utils::{increment, mul_pct},
 };
-use cosmwasm_std::{attr, DepsMut, Env, MessageInfo, Response, Uint128, Uint64};
+use cosmwasm_std::{attr, Addr, DepsMut, Env, MessageInfo, Response, Uint128, Uint64};
 use cw_lib::{models::Token, utils::funds::build_cw20_transfer_from_msg};
 
 pub fn receive(
@@ -15,8 +15,11 @@ pub fn receive(
   env: Env,
   info: MessageInfo,
   revenue: Uint128,
+  maybe_cw20_sender: Option<Addr>,
 ) -> ContractResult<Response> {
-  validate_address(deps.api, &info.sender)?;
+  let sender = maybe_cw20_sender.unwrap_or_else(|| info.sender.clone());
+
+  validate_address(deps.api, &sender)?;
   ensure_min_amount(revenue, Uint128::one())?;
 
   let config = CONFIG.load(deps.storage)?;
@@ -29,7 +32,7 @@ pub fn receive(
   // increment aggregate total revenue received through this RevenueStream
   STREAMS.update(
     deps.storage,
-    info.sender.clone(),
+    sender.clone(),
     |maybe_source| -> Result<_, ContractError> {
       let mut stream = maybe_source.unwrap_or_else(|| RevenueStream::new(env.block.time, None));
       stream.execution_count += Uint64::one();
@@ -46,7 +49,7 @@ pub fn receive(
       },
       Token::Cw20 { address } => {
         resp = resp.add_message(build_cw20_transfer_from_msg(
-          &info.sender,
+          &sender,
           &env.contract.address,
           address,
           revenue,

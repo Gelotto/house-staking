@@ -12,8 +12,8 @@ pub enum ContractError {
   #[error("InvalidAddress")]
   InvalidAddress,
 
-  #[error("ValidationError")]
-  ValidationError {},
+  #[error("ValidationError: {reason:?}")]
+  ValidationError { reason: String },
 
   #[error("AccountSuspended")]
   AccountSuspended,

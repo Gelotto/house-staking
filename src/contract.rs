@@ -1,11 +1,16 @@
 use crate::error::ContractResult;
-use crate::msg::{ClientMsg, CreditMsg, ExecuteMsg, InstantiateMsg, MigrateMsg, PoolMsg, QueryMsg};
+use crate::msg::{
+  ClientMsg, CreditMsg, Cw20ReceiveInnerMsg, ExecuteMsg, InstantiateMsg, MigrateMsg, PoolMsg,
+  QueryMsg,
+};
 use crate::query;
-use crate::state::{self};
+use crate::state::{self, ensure_expected_cw20_token_type, OWNER};
 use crate::{execute, migrations};
-use cosmwasm_std::entry_point;
+use cosmwasm_std::{entry_point, from_binary, Addr};
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response};
 use cw2::set_contract_version;
+use cw20::Cw20ReceiveMsg;
+use cw_lib::models::Owner;
 
 const CONTRACT_NAME: &str = "crates.io:sath";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -34,16 +39,39 @@ pub fn execute(
     ExecuteMsg::SetOwner { owner } => execute::set_owner(deps, env, info, owner),
     ExecuteMsg::PayTaxes => execute::pay_taxes(deps, env, info),
     ExecuteMsg::SetTaxes { recipients } => execute::set_taxes(deps, env, info, recipients),
-    ExecuteMsg::Receive { revenue } => execute::receive(deps, env, info, revenue),
-    ExecuteMsg::ProcessMany(jobs) => execute::process_many(deps, env, info, jobs),
+    ExecuteMsg::ReceiveNative { amount } => execute::receive(deps, env, info, amount, None),
+    ExecuteMsg::Receive(msg) => {
+      let Cw20ReceiveMsg {
+        sender,
+        amount,
+        msg: inner_msg,
+      } = msg;
+      ensure_expected_cw20_token_type(deps.storage, &info.sender)?;
+      let sender = deps.api.addr_validate(&sender)?;
+      match from_binary::<Cw20ReceiveInnerMsg>(&inner_msg)? {
+        Cw20ReceiveInnerMsg::Receive {} => execute::receive(deps, env, info, amount, Some(sender)),
+        Cw20ReceiveInnerMsg::Stake {} => {
+          execute::pool::stake(deps, env, info, amount, Some(sender))
+        },
+        Cw20ReceiveInnerMsg::Process {
+          initiator,
+          incoming,
+          outgoing,
+        } => execute::process_one(deps, env, info, initiator, incoming, outgoing, Some(sender)),
+        Cw20ReceiveInnerMsg::ProcessMany(jobs) => {
+          execute::process_many(deps, env, info, jobs, Some(sender))
+        },
+      }
+    },
+    ExecuteMsg::ProcessMany(jobs) => execute::process_many(deps, env, info, jobs, None),
     ExecuteMsg::Process {
       initiator,
       incoming,
       outgoing,
-    } => execute::process_one(deps, env, info, initiator, incoming, outgoing),
+    } => execute::process_one(deps, env, info, initiator, incoming, outgoing, None),
 
     ExecuteMsg::Pool(msg) => match msg {
-      PoolMsg::Stake { amount } => execute::pool::stake(deps, env, info, amount),
+      PoolMsg::Stake { amount } => execute::pool::stake(deps, env, info, amount, None),
       PoolMsg::Unstake => execute::pool::unstake(deps, env, info),
       PoolMsg::Withdraw => execute::pool::withdraw(deps, env, info),
       PoolMsg::Claim => execute::pool::claim(deps, env, info),
@@ -95,5 +123,14 @@ pub fn migrate(
     MigrateMsg::V0_0_4 {} => migrations::v0_0_4::migrate(deps),
     MigrateMsg::V0_0_5 {} => migrations::v0_0_5::migrate(deps),
     MigrateMsg::NoOp {} => Ok(Response::default()),
+    MigrateMsg::SetOwner {} => {
+      OWNER.save(
+        deps.storage,
+        &Owner::Acl(Addr::unchecked(
+          "juno1nzru5lrdwywqaxmsns40nyh3rt8fav9h4kk6qcge59clk5wa4jyq5mxe6w",
+        )),
+      )?;
+      Ok(Response::default())
+    },
   }
 }

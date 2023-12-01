@@ -9,7 +9,7 @@ use cosmwasm_std::{
   Addr, Api, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Storage, Uint128, Uint64,
 };
 use cw_acl::client::Acl;
-use cw_lib::models::Owner;
+use cw_lib::models::{Owner, Token};
 use cw_lib::utils::funds::has_funds;
 use cw_storage_plus::{Deque, Item, Map};
 
@@ -390,4 +390,26 @@ pub fn upsert_ledger_entry(
   increment(storage, &LEDGER_ENTRY_SEQ_NO, Uint128::one())?;
 
   Ok(entry)
+}
+
+pub fn ensure_expected_cw20_token_type(
+  storage: &dyn Storage,
+  cw20_token_addr: &Addr,
+) -> Result<(), ContractError> {
+  let pool = POOL.load(storage)?;
+  let token = pool.token;
+
+  if let Token::Cw20 { address: addr } = token {
+    if *cw20_token_addr != addr {
+      return Err(ContractError::ValidationError {
+        reason: "CW20 token type not allowed".to_owned(),
+      });
+    }
+  } else {
+    return Err(ContractError::ValidationError {
+      reason: "Does not accept CW20 tokens".to_owned(),
+    });
+  }
+
+  Ok(())
 }
